@@ -1,0 +1,10 @@
+loipon einai einai 2736 grammes den esvisa tis grammes pou exoune pavles telika 
+comment einai h kritiki opws thn phrame
+review einai h kritikh meta apo spell check
+text_lemma einai to review meta apo lemmatization
+text_proc einai to text_lemma meta apo tous algorithmous pou eixe o bro (function preprocess)
+sentiment_predicted einai to sinaisthimna afou efarmosoume to my_senti panw sto text_proc ousiastika pairnei 
+    thetikes kai arnhtikes lexeis kai bgazei ena sum sto opoio xrhsimopoioume megalutero iso tou 0 kanto 1 alliws 0
+sentiment_star einai ta asteria afou efarmosoume dfstars.map({4: 1, 5: 1, 3: 1, 1: 0, 2: 0})
+
+kai sentiment_star kai sentiment_predicted mporoume na xrhsimopoioume kati allo gia na painroume kai -1 to vlepoume auto
