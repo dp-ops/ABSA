@@ -100,13 +100,13 @@ def process_data(input_file, output_dir):
             "bio_labels": bio_labels,
             "aspects": [{
                 "aspect": asp["aspect"],
-                "sentiment": asp["sentiment_str"],
+                # "sentiment": asp["sentiment_str"],
                 "sentiment_id": sentiment_to_id[asp["sentiment_str"]]
             } for asp in rated_aspects],
-            "overall_sentiment": {
-                "sent_predicted": row.get("sentiment_predicted", None),
-                "sent_star": row.get("sentiment_star", None)
-            }
+            # "overall_sentiment": {
+            #     "sent_predicted": row.get("sentiment_predicted", None),
+            #     "sent_star": row.get("sentiment_star", None)
+            # }
         })
     
     # Save full dataset
