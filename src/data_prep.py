@@ -146,7 +146,6 @@ def process_data(input_file, output_dir):
         f"- Test: {test_file}"
     )
 
-# Example usage
 if __name__ == "__main__":
     input_file = "data/test_2731_reviews.csv"
     output_dir = "data/processed_data"
