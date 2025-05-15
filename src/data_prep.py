@@ -37,10 +37,10 @@ def extract_rated_aspects(row):
     ]
     extracted = []
     for col_name in aspect_columns:
-        if col_name in row and pd.notna(row[col_name]) and str(row[col_name]).strip() in ['-1', '0', '1', '-']:
+        if col_name in row and pd.notna(row[col_name]) and str(row[col_name]).strip() in ['-1', '0', '1']:  # Exclude '-'
             # Convert to sentiment values
             sentiment_str = str(row[col_name]).strip()
-            sentiment_val = -1 if sentiment_str in ['-1', '-'] else int(sentiment_str)
+            sentiment_val = -1 if sentiment_str == '-1' else int(sentiment_str)
             sentiment_str = "positive" if sentiment_val == 1 else "negative" if sentiment_val == -1 else "neutral"
             
             extracted.append({
