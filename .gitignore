@@ -2,5 +2,13 @@ skroutzscraper/skroutzscraper/__pycache__/
 skroutzscraper/skroutzscraper/spiders/__pycache__/
 .scrapy/
 src/__pycache__/
+saved_models/
 saved_models/aspect_sentiment_model_test/
 saved_models/aspect_extractor_model_test/
+results/
+metrics_plots/
+data/bio_tagging_problems.json
+src/test_bio_tagging.py
+src/visualize_bio_tagging.py
+text_inference.txt
+.gitignore
