@@ -9,6 +9,7 @@ import re
 from transformers import AutoModelForTokenClassification, AutoModelForSequenceClassification
 from transformers import AutoTokenizer, Trainer, TrainingArguments, DataCollatorForTokenClassification
 from transformers import pipeline
+from transformers import TrainerCallback
 from datasets import Dataset, DatasetDict
 from seqeval.metrics import classification_report
 from sklearn.metrics import classification_report as cls_report
@@ -16,6 +17,67 @@ from sklearn.metrics import classification_report as cls_report
 # Set up logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
+
+def align_tokens_and_labels(original_tokens, original_labels, tokenizer):
+    """
+    Align original tokens and their BIO labels with BERT tokenizer output.
+    This handles the subword tokenization that BERT does.
+    
+    Args:
+        original_tokens: List of original tokens from the dataset
+        original_labels: List of BIO labels corresponding to original tokens
+        tokenizer: The BERT tokenizer
+        
+    Returns:
+        List of aligned labels for BERT tokenized input (including special tokens)
+    """
+    # Convert to lowercase if needed (depending on if the tokenizer is cased or uncased)
+    bert_tokens = []
+    bert_labels = []
+    
+    # Add [CLS] token
+    bert_tokens.append("[CLS]")
+    bert_labels.append("O")  # [CLS] token is always outside
+    
+    # Process each original token and align with BERT tokens
+    for orig_token, orig_label in zip(original_tokens, original_labels):
+        # Tokenize the original token to get subwords
+        subwords = tokenizer.tokenize(orig_token)
+        
+        # If no subwords were produced (rare, but could happen with some tokens)
+        if not subwords:
+            continue
+            
+        # Add the subwords and their labels
+        for i, subword in enumerate(subwords):
+            bert_tokens.append(subword)
+            
+            # First subword gets the original label
+            if i == 0:
+                bert_labels.append(orig_label)
+            else:
+                # For subsequent subwords:
+                # - If original was B-ASP, subsequent is I-ASP
+                # - If original was I-ASP, subsequent remains I-ASP
+                # - If original was O, subsequent remains O
+                if orig_label == "B-ASP":
+                    bert_labels.append("I-ASP")
+                else:
+                    bert_labels.append(orig_label)
+    
+    # Add [SEP] token
+    bert_tokens.append("[SEP]")
+    bert_labels.append("O")  # [SEP] token is always outside
+    
+    # Verify the alignment
+    if len(bert_tokens) != len(bert_labels):
+        logger.warning(f"Mismatch in aligned tokens ({len(bert_tokens)}) and labels ({len(bert_labels)})")
+    
+    return bert_tokens, bert_labels
+
+def convert_aligned_labels_to_ids(aligned_labels, label_map):
+    """Convert string labels to IDs using the label map"""
+    return [label_map.get(label, 0) for label in aligned_labels]
 
 # Constants
 MODEL_NAME = "nlpaueb/bert-base-greek-uncased-v1"
@@ -59,37 +121,65 @@ def load_aspect_dataset(file_path, tokenizer, label_map=ASPECT_LABEL_MAP):
     # Convert to a format compatible with the datasets library
     formatted_data = []
     for item in data:
-        # Get the text and tokenize it properly with the tokenizer
+        # Get the text
         text = item['text']
         
-        # Tokenize the text with proper padding and truncation
-        encoding = tokenizer(
-            text,
-            padding="max_length",
-            truncation=True,
-            max_length=MAX_LENGTH,
-            return_tensors=None  # Return Python lists
-        )
-        
-        # Map the BIO labels properly to the tokenized text
-        # For simple testing, just use 'O' for all tokens
-        labels = [0] * len(encoding['input_ids'])  # all 'O' labels
-        
-        # Create a few fake aspects for testing (to avoid empty metrics)
-        # This is just for the test training
-        if len(encoding['input_ids']) > 10:
-            # Add some fake "B-ASP" and "I-ASP" labels
-            labels[5] = 1  # B-ASP
-            labels[6] = 2  # I-ASP
-        
-        # Create entry with consistent keys
-        formatted_data.append({
-            'input_ids': encoding['input_ids'],
-            'attention_mask': encoding['attention_mask'],
-            'token_type_ids': encoding['token_type_ids'],
-            'labels': labels
-        })
-        
+        # Check if we have pre-generated tokens and BIO labels
+        if 'tokens' in item and 'bio_labels' in item:
+            orig_tokens = item['tokens']
+            orig_bio_labels = item['bio_labels']
+            
+            # Align the original tokens and labels with BERT tokenization
+            aligned_tokens, aligned_labels = align_tokens_and_labels(orig_tokens, orig_bio_labels, tokenizer)
+            
+            # Convert aligned labels to IDs
+            label_ids = convert_aligned_labels_to_ids(aligned_labels, label_map)
+            
+            # Tokenize the text with aligned tokens
+            encoding = tokenizer(
+                text,
+                padding="max_length",
+                truncation=True,
+                max_length=MAX_LENGTH,
+                return_tensors=None  # Return Python lists
+            )
+            
+            # Make sure label_ids matches the length of input_ids (pad if needed)
+            if len(label_ids) < len(encoding['input_ids']):
+                # Pad with O (0)
+                label_ids = label_ids + [0] * (len(encoding['input_ids']) - len(label_ids))
+            elif len(label_ids) > len(encoding['input_ids']):
+                # Truncate
+                label_ids = label_ids[:len(encoding['input_ids'])]
+                
+            # Create entry with consistent keys
+            formatted_data.append({
+                'input_ids': encoding['input_ids'],
+                'attention_mask': encoding['attention_mask'],
+                'token_type_ids': encoding['token_type_ids'],
+                'labels': label_ids
+            })
+        else:
+            # For data without pre-tokenized text and labels, just use text
+            # This is a fallback, but should be rare
+            encoding = tokenizer(
+                text,
+                padding="max_length",
+                truncation=True,
+                max_length=MAX_LENGTH,
+                return_tensors=None  # Return Python lists
+            )
+            
+            # Initialize all tokens with 'O' label (0)
+            labels = [0] * len(encoding['input_ids'])
+            
+            formatted_data.append({
+                'input_ids': encoding['input_ids'],
+                'attention_mask': encoding['attention_mask'],
+                'token_type_ids': encoding['token_type_ids'],
+                'labels': labels
+            })
+
     return Dataset.from_list(formatted_data)
 
 def load_sentiment_dataset(file_path, tokenizer):
@@ -160,42 +250,52 @@ def compute_ate_metrics(p):
 
     # Remove ignored index (special tokens)
     true_predictions = [
-        [ASPECT_LABEL_MAP_INVERSE[p] for (p, l) in zip(prediction, label) if l != -100]
+        [ASPECT_LABEL_MAP_INVERSE[p_val] for (p_val, l_val) in zip(prediction, label) if l_val != -100]
         for prediction, label in zip(predictions, labels)
     ]
     true_labels = [
-        [ASPECT_LABEL_MAP_INVERSE[l] for (p, l) in zip(prediction, label) if l != -100]
+        [ASPECT_LABEL_MAP_INVERSE[l_val] for (p_val, l_val) in zip(prediction, label) if l_val != -100]
         for prediction, label in zip(predictions, labels)
     ]
 
     try:
         # Set zero_division=1 to avoid warnings and errors
-        results = classification_report(true_labels, true_predictions, output_dict=True, zero_division=1)
+        results_dict = classification_report(true_labels, true_predictions, output_dict=True, zero_division=1)
         
-        # Check if we have results
-        if "macro avg" in results and "f1-score" in results["macro avg"]:
-            return {
-                "precision": results["macro avg"]["precision"],
-                "recall": results["macro avg"]["recall"],
-                "f1": results["macro avg"]["f1-score"],
-                "accuracy": results.get("accuracy", 0.0),
-            }
+        # Initialize metrics to return 
+        metrics_to_return = {
+            "precision": 0.0,
+            "recall": 0.0,
+            "f1": 0.0,
+        }
+
+        # Safely extract macro average scores
+        if "macro avg" in results_dict:
+            macro_avg_stats = results_dict["macro avg"]
+            precision_val = macro_avg_stats.get("precision", 0.0)
+            recall_val = macro_avg_stats.get("recall", 0.0)
+            f1_val = macro_avg_stats.get("f1-score", 0.0)
+
+            metrics_to_return["precision"] = 0.0 if np.isnan(precision_val) else precision_val
+            metrics_to_return["recall"] = 0.0 if np.isnan(recall_val) else recall_val
+            metrics_to_return["f1"] = 0.0 if np.isnan(f1_val) else f1_val
+            
+            if np.isnan(macro_avg_stats.get("f1-score", 0.0)) and metrics_to_return["f1"] == 0.0:
+                 logger.warning(
+                    "ATE macro F1 score was NaN (likely no aspects predicted/found), reported as 0.0."
+                 )
         else:
-            # Return default metrics if 'macro avg' or 'f1-score' is missing
-            return {
-                "precision": 0.0,
-                "recall": 0.0,
-                "f1": 0.0,
-                "accuracy": 0.0,
-            }
+            logger.warning("ATE metrics: 'macro avg' not found in classification_report output.")
+            
+        return metrics_to_return
+
     except Exception as e:
-        logger.warning(f"Error computing ATE metrics: {e}")
+        logger.warning(f"Error computing ATE metrics: {e}. True labels sample: {str(true_labels[:1]) if true_labels else '[]'}, Preds sample: {str(true_predictions[:1]) if true_predictions else '[]'}")
         # Return default metrics on error
         return {
             "precision": 0.0,
             "recall": 0.0,
             "f1": 0.0,
-            "accuracy": 0.0,
         }
 
 def compute_asc_metrics(p):
@@ -240,7 +340,7 @@ def compute_asc_metrics(p):
 
 # ================ MODEL TRAINING FUNCTIONS ================
 
-def train_aspect_extraction(train_dataset, val_dataset, tokenizer, num_epochs=NUM_EPOCHS, output_dir=None):
+def train_aspect_extraction(train_dataset, val_dataset, tokenizer, num_epochs=NUM_EPOCHS, output_dir=None, resume_from_checkpoint=False, learning_rate=LEARNING_RATE, batch_size=BATCH_SIZE):
     """
     Train the Aspect Term Extraction model
     """
@@ -248,9 +348,23 @@ def train_aspect_extraction(train_dataset, val_dataset, tokenizer, num_epochs=NU
         output_dir = ASPECT_MODEL_PATH
     
     logger.info("Initializing ATE model...")
-    model = AutoModelForTokenClassification.from_pretrained(
-        MODEL_NAME, num_labels=ASPECT_NUM_LABELS
-    )
+    
+    # Check if we're resuming from a checkpoint
+    if resume_from_checkpoint and os.path.exists(output_dir):
+        logger.info(f"Loading model from {output_dir} to resume training")
+        model = AutoModelForTokenClassification.from_pretrained(output_dir)
+    else:
+        # Create model with higher dropout for better generalization
+        from transformers import BertConfig
+        config = BertConfig.from_pretrained(MODEL_NAME, num_labels=ASPECT_NUM_LABELS)
+        
+        # Increase dropout rate for better generalization
+        config.hidden_dropout_prob = 0.3  # Default is usually 0.1
+        config.attention_probs_dropout_prob = 0.3  # Default is usually 0.1
+        
+        model = AutoModelForTokenClassification.from_pretrained(
+            MODEL_NAME, config=config
+        )
     
     # Check transformers version for compatibility
     try:
@@ -268,15 +382,24 @@ def train_aspect_extraction(train_dataset, val_dataset, tokenizer, num_epochs=NU
         "logging_dir": f"{output_dir}/logs",
         "logging_steps": 50,
         "num_train_epochs": num_epochs,
-        "learning_rate": LEARNING_RATE,
-        "per_device_train_batch_size": BATCH_SIZE,
-        "per_device_eval_batch_size": BATCH_SIZE,
+        "learning_rate": learning_rate,
+        "per_device_train_batch_size": batch_size,
+        "per_device_eval_batch_size": batch_size,
         "weight_decay": 0.01,
         "save_steps": 100,
         "eval_steps": 100,
         "save_total_limit": 3,
-        "metric_for_best_model": "f1",
+        "metric_for_best_model": "f1",  
+        "warmup_ratio": 0.1,  # Gradual warmup for learning rate
+        # Add FP16 training for faster training if GPU supports it
+        "fp16": torch.cuda.is_available(),
+        # Add more aggressive regularization
+        "gradient_accumulation_steps": 2,  # Accumulate gradients to simulate larger batch size
     }
+    
+    # Add resume_from_checkpoint if needed
+    if resume_from_checkpoint:
+        base_args["resume_from_checkpoint"] = True
     
     # Check if eval_strategy or evaluation_strategy is the correct parameter
     train_args_signature = TrainingArguments.__init__.__code__.co_varnames
@@ -284,18 +407,18 @@ def train_aspect_extraction(train_dataset, val_dataset, tokenizer, num_epochs=NU
     if "evaluation_strategy" in train_args_signature:
         base_args["evaluation_strategy"] = "steps"
         base_args["save_strategy"] = "steps"
+        base_args["load_best_model_at_end"] = True
+        base_args["greater_is_better"] = True  # Higher F1 is better
         logger.info("Using 'evaluation_strategy' and 'save_strategy' parameters")
     elif "eval_strategy" in train_args_signature:
         base_args["eval_strategy"] = "steps"
         base_args["save_strategy"] = "steps"
+        base_args["load_best_model_at_end"] = True
+        base_args["greater_is_better"] = True  # Higher F1 is better
         logger.info("Using 'eval_strategy' and 'save_strategy' parameters")
     else:
         # Older versions might use different parameters or no specific strategy params
         logger.info("No strategy parameters found, using default configuration")
-    
-    # Only add load_best_model_at_end if strategy parameters are available
-    if "evaluation_strategy" in base_args or "eval_strategy" in base_args:
-        base_args["load_best_model_at_end"] = True
     
     # Disable wandb reporting if applicable
     if "report_to" in train_args_signature:
@@ -306,19 +429,136 @@ def train_aspect_extraction(train_dataset, val_dataset, tokenizer, num_epochs=NU
     
     # Create a data collator for token classification
     data_collator = DataCollatorForTokenClassification(tokenizer=tokenizer)
+
+    # Create optimizer with weight decay
+    no_decay = ["bias", "LayerNorm.weight"]
+    optimizer_grouped_parameters = [
+        {
+            "params": [p for n, p in model.named_parameters() if not any(nd in n for nd in no_decay)],
+            "weight_decay": 0.01,
+        },
+        {
+            "params": [p for n, p in model.named_parameters() if any(nd in n for nd in no_decay)],
+            "weight_decay": 0.0,
+        },
+    ]
+    optimizer = torch.optim.AdamW(optimizer_grouped_parameters, lr=learning_rate)
     
-    trainer = Trainer(
+    # Use Transformers get_scheduler for linear warmup
+    from transformers import get_scheduler
+    
+    # Get number of training steps
+    num_training_steps = num_epochs * len(train_dataset) // batch_size
+    
+    # First create a default scheduler with linear warmup
+    lr_scheduler = get_scheduler(
+        name="linear",
+        optimizer=optimizer,
+        num_warmup_steps=int(0.1 * num_training_steps),  # 10% warmup
+        num_training_steps=num_training_steps
+    )
+    
+    # Custom callback for learning rate reduction on plateau
+    class F1OnPlateauCallback(TrainerCallback):
+        def __init__(self, patience=15, factor=0.8, min_lr=1e-6):
+            self.patience = patience
+            self.factor = factor
+            self.min_lr = min_lr
+            self.best_f1 = -float('inf')
+            self.no_improve_count = 0
+        
+        def on_evaluate(self, args, state, control, metrics=None, **kwargs):
+            if metrics is None or "eval_f1" not in metrics:
+                return
+            
+            current_f1 = metrics["eval_f1"]
+            
+            if current_f1 > self.best_f1:
+                self.best_f1 = current_f1
+                self.no_improve_count = 0
+                logger.info(f"New best F1: {current_f1:.4f}")
+            else:
+                self.no_improve_count += 1
+                logger.info(f"F1 did not improve for {self.no_improve_count} evaluations. Current: {current_f1:.4f}, Best: {self.best_f1:.4f}")
+                
+                if self.no_improve_count >= self.patience:
+                    # Time to reduce learning rate
+                    for param_group in optimizer.param_groups:
+                        old_lr = param_group['lr']
+                        if old_lr > self.min_lr:
+                            new_lr = max(old_lr * self.factor, self.min_lr)
+                            param_group['lr'] = new_lr
+                            logger.info(f"Reducing learning rate from {old_lr:.6f} to {new_lr:.6f} after {self.patience} evaluations without improvement")
+                    
+                    # Reset counter
+                    self.no_improve_count = 0
+
+    # Create and add our F1 plateau callback
+    f1_plateau_callback = F1OnPlateauCallback(patience=15, factor=0.8, min_lr=1e-6)
+    
+    # Implement focal loss for better handling of class imbalance
+    class FocalLossTrainer(Trainer):
+        def compute_loss(self, model, inputs, return_outputs=False):
+            labels = inputs.get("labels")
+            # Forward pass
+            outputs = model(**inputs)
+            logits = outputs.get("logits")
+            
+            # Standard loss - use model's internal loss computation
+            if labels is None:
+                return outputs.get("loss"), outputs
+            
+            # Custom focal loss - emphasizes hard examples
+            gamma = 2.0  # Focus parameter - higher means more focus on hard examples
+            alpha = 0.25  # Class balance parameter
+            
+            # Convert to one hot
+            batch_size, seq_length, num_labels = logits.shape
+            one_hot = torch.zeros_like(logits)
+            
+            # Only consider non-ignored positions
+            mask = (labels >= 0).unsqueeze(-1).expand_as(one_hot)
+            valid_labels = labels.clone()
+            valid_labels[labels < 0] = 0  # Just for indexing, these will be masked out
+            
+            # Fill in one hot
+            one_hot.scatter_(2, valid_labels.unsqueeze(-1), 1.0)
+            
+            # Apply focal loss calculation
+            probs = torch.softmax(logits, dim=-1)
+            pt = (one_hot * probs).sum(-1)  # Probability of target class
+            pt = torch.clamp(pt, min=1e-7, max=1.0)  # Prevent NaN
+            
+            # Focal loss formula: -alpha * (1-pt)^gamma * log(pt)
+            focal_weight = alpha * (1 - pt) ** gamma
+            
+            # Cross entropy on valid positions
+            loss = -torch.log(pt) * focal_weight
+            loss = loss * mask[:,:,0]  # Apply mask for ignored positions
+            
+            # Average over valid positions
+            num_valid = mask[:,:,0].sum()
+            if num_valid > 0:
+                loss = loss.sum() / num_valid
+            else:
+                loss = loss.sum() * 0.0  # Return 0 if no valid positions
+            
+            return (loss, outputs) if return_outputs else loss
+
+    trainer = FocalLossTrainer(
         model=model,
         args=training_args,
         train_dataset=train_dataset,
         eval_dataset=val_dataset,
         data_collator=data_collator,
-        compute_metrics=compute_ate_metrics
+        compute_metrics=compute_ate_metrics,
+        optimizers=(optimizer, lr_scheduler),  # Pass our custom optimizer and scheduler
+        callbacks=[f1_plateau_callback]  # Add our custom callback
     )
     
     logger.info("Training ATE model...")
     start_time = time.time()
-    train_result = trainer.train()
+    train_result = trainer.train(resume_from_checkpoint=resume_from_checkpoint)
     end_time = time.time()
     
     training_time = end_time - start_time
@@ -347,7 +587,7 @@ def train_aspect_extraction(train_dataset, val_dataset, tokenizer, num_epochs=NU
     logger.info(f"Evaluation metrics: {eval_metrics}")
     return model, tokenizer, eval_metrics
 
-def train_aspect_sentiment(train_dataset, val_dataset, tokenizer, num_epochs=NUM_EPOCHS, output_dir=None):
+def train_aspect_sentiment(train_dataset, val_dataset, tokenizer, num_epochs=NUM_EPOCHS, output_dir=None, resume_from_checkpoint=False, learning_rate=LEARNING_RATE, batch_size=BATCH_SIZE):
     """
     Train the Aspect Sentiment Classification model
     """
@@ -355,9 +595,21 @@ def train_aspect_sentiment(train_dataset, val_dataset, tokenizer, num_epochs=NUM
         output_dir = SENTIMENT_MODEL_PATH
     
     logger.info("Initializing ASC model...")
-    model = AutoModelForSequenceClassification.from_pretrained(
-        MODEL_NAME, num_labels=SENTIMENT_NUM_LABELS
-    )
+    
+    # Check if we're resuming from a checkpoint
+    if resume_from_checkpoint and os.path.exists(output_dir):
+        logger.info(f"Loading model from {output_dir} to resume training")
+        model = AutoModelForSequenceClassification.from_pretrained(output_dir)
+    else:
+        # Create a model with config that includes num_labels
+        from transformers import BertConfig
+        config = BertConfig.from_pretrained(MODEL_NAME, num_labels=SENTIMENT_NUM_LABELS)
+        model = AutoModelForSequenceClassification.from_pretrained(
+            MODEL_NAME, config=config
+        )
+        
+        # Manually set the class weights in the model
+        model.class_weights = torch.tensor([4.0, 4.0, 1.0])
     
     # Configure appropriate training arguments
     # Base arguments that are common to all versions
@@ -366,15 +618,20 @@ def train_aspect_sentiment(train_dataset, val_dataset, tokenizer, num_epochs=NUM
         "logging_dir": f"{output_dir}/logs",
         "logging_steps": 50,
         "num_train_epochs": num_epochs,
-        "learning_rate": LEARNING_RATE,
-        "per_device_train_batch_size": BATCH_SIZE,
-        "per_device_eval_batch_size": BATCH_SIZE,
+        "learning_rate": learning_rate,
+        "per_device_train_batch_size": batch_size,
+        "per_device_eval_batch_size": batch_size,
         "weight_decay": 0.01,
         "save_steps": 100,
         "eval_steps": 100,
         "save_total_limit": 3,
         "metric_for_best_model": "macro_f1",
+        "warmup_ratio": 0.1,  # Gradual warmup for learning rate
     }
+    
+    # Add resume_from_checkpoint if needed
+    if resume_from_checkpoint:
+        base_args["resume_from_checkpoint"] = True
     
     # Check if eval_strategy or evaluation_strategy is the correct parameter
     train_args_signature = TrainingArguments.__init__.__code__.co_varnames
@@ -382,18 +639,18 @@ def train_aspect_sentiment(train_dataset, val_dataset, tokenizer, num_epochs=NUM
     if "evaluation_strategy" in train_args_signature:
         base_args["evaluation_strategy"] = "steps"
         base_args["save_strategy"] = "steps"
+        base_args["load_best_model_at_end"] = True
+        base_args["greater_is_better"] = True  # Higher F1 is better
         logger.info("Using 'evaluation_strategy' and 'save_strategy' parameters")
     elif "eval_strategy" in train_args_signature:
         base_args["eval_strategy"] = "steps"
         base_args["save_strategy"] = "steps"
+        base_args["load_best_model_at_end"] = True
+        base_args["greater_is_better"] = True  # Higher F1 is better
         logger.info("Using 'eval_strategy' and 'save_strategy' parameters")
     else:
         # Older versions might use different parameters or no specific strategy params
         logger.info("No strategy parameters found, using default configuration")
-    
-    # Only add load_best_model_at_end if strategy parameters are available
-    if "evaluation_strategy" in base_args or "eval_strategy" in base_args:
-        base_args["load_best_model_at_end"] = True
     
     # Disable wandb reporting if applicable
     if "report_to" in train_args_signature:
@@ -402,17 +659,75 @@ def train_aspect_sentiment(train_dataset, val_dataset, tokenizer, num_epochs=NUM
     # Create training arguments with the appropriate parameters
     training_args = TrainingArguments(**base_args)
     
+    # Create optimizer
+    optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate)
+    
+    # Create a default scheduler with linear warmup
+    from transformers import get_scheduler
+    
+    # Get number of training steps
+    num_training_steps = num_epochs * len(train_dataset) // batch_size
+    
+    # Create scheduler for warmup
+    lr_scheduler = get_scheduler(
+        name="linear",
+        optimizer=optimizer,
+        num_warmup_steps=int(0.1 * num_training_steps),  # 10% warmup
+        num_training_steps=num_training_steps
+    )
+    
+    # Custom callback for learning rate reduction on plateau
+    class MacroF1OnPlateauCallback(TrainerCallback):
+        def __init__(self, patience=15, factor=0.75, min_lr=1e-6):
+            self.patience = patience
+            self.factor = factor
+            self.min_lr = min_lr
+            self.best_f1 = -float('inf')
+            self.no_improve_count = 0
+        
+        def on_evaluate(self, args, state, control, metrics=None, **kwargs):
+            if metrics is None or "eval_macro_f1" not in metrics:
+                return
+            
+            current_f1 = metrics["eval_macro_f1"]
+            
+            if current_f1 > self.best_f1:
+                self.best_f1 = current_f1
+                self.no_improve_count = 0
+                logger.info(f"New best Macro F1: {current_f1:.4f}")
+            else:
+                self.no_improve_count += 1
+                logger.info(f"Macro F1 did not improve for {self.no_improve_count} evaluations. Current: {current_f1:.4f}, Best: {self.best_f1:.4f}")
+                
+                if self.no_improve_count >= self.patience:
+                    # Time to reduce learning rate
+                    for param_group in optimizer.param_groups:
+                        old_lr = param_group['lr']
+                        if old_lr > self.min_lr:
+                            new_lr = max(old_lr * self.factor, self.min_lr)
+                            param_group['lr'] = new_lr
+                            logger.info(f"Reducing learning rate from {old_lr:.6f} to {new_lr:.6f} after {self.patience} evaluations without improvement")
+                    
+                    # Reset counter
+                    self.no_improve_count = 0
+
+    # Create and add our F1 plateau callback
+    macro_f1_plateau_callback = MacroF1OnPlateauCallback(patience=15, factor=0.75, min_lr=1e-6)
+
+    # Use standard trainer with our callbacks
     trainer = Trainer(
         model=model,
         args=training_args,
         train_dataset=train_dataset,
         eval_dataset=val_dataset,
-        compute_metrics=compute_asc_metrics
+        compute_metrics=compute_asc_metrics,
+        optimizers=(optimizer, lr_scheduler),  # Pass our custom optimizer and scheduler
+        callbacks=[macro_f1_plateau_callback]  # Add our custom callback
     )
     
     logger.info("Training ASC model...")
     start_time = time.time()
-    train_result = trainer.train()
+    train_result = trainer.train(resume_from_checkpoint=resume_from_checkpoint)
     end_time = time.time()
     
     training_time = end_time - start_time
@@ -504,76 +819,100 @@ class ABSAPipeline:
             return os.path.exists(config_file) and model_file
         return False
     
-    def extract_aspects(self, text):
-        """Extract aspect terms from text using the NER model"""
+    def extract_aspects(self, text, confidence_threshold=0.05):
+        """Extract aspect terms from text using a more direct approach with a lower confidence threshold"""
         if not text or not text.strip():
             logger.warning("Empty text provided for aspect extraction")
             return []
         
         try:
-            # Get NER results
-            ner_results = self.aspect_pipeline(text)
+            # Tokenize the input
+            inputs = self.aspect_tokenizer(text, return_tensors="pt", truncation=True, padding=True, max_length=128)
             
-            # Filter to keep only aspect entities (with 'B-ASP' or 'I-ASP' tags)
+            # Move to GPU if available
+            device = next(self.aspect_model.parameters()).device
+            inputs = {k: v.to(device) for k, v in inputs.items()}
+            
+            # Get the predictions
+            with torch.no_grad():
+                outputs = self.aspect_model(**inputs)
+                predictions = outputs.logits
+            
+            # Convert to probabilities
+            probs = torch.nn.functional.softmax(predictions, dim=2)
+            # Get the predicted labels
+            pred_labels = torch.argmax(probs, dim=2)
+            
+            # Convert to numpy for easier handling
+            probs_np = probs.detach().cpu().numpy()[0]
+            pred_labels_np = pred_labels.detach().cpu().numpy()[0]
+            
+            # Get tokens
+            tokens = self.aspect_tokenizer.convert_ids_to_tokens(inputs['input_ids'][0].cpu())
+            
+            # Extract aspects with confidence above threshold
             aspects = []
-            for result in ner_results:
-                if result['entity_group'] in ['B-ASP', 'I-ASP']:
+            i = 0
+            while i < len(tokens):
+                if tokens[i] in ['[CLS]', '[SEP]', '[PAD]']:
+                    i += 1
+                    continue
+                    
+                if pred_labels_np[i] == ASPECT_LABEL_MAP['B-ASP'] and probs_np[i][pred_labels_np[i]] >= confidence_threshold:
+                    # Found the beginning of an aspect
+                    aspect_start = i
+                    aspect_end = i
+                    aspect_score = float(probs_np[i][pred_labels_np[i]])
+                    
+                    # Look for continuation (I-ASP)
+                    j = i + 1
+                    while j < len(tokens) and j < len(pred_labels_np):
+                        if tokens[j] in ['[CLS]', '[SEP]', '[PAD]']:
+                            j += 1
+                            continue
+                            
+                        # Consider subword tokens as part of the aspect
+                        if (pred_labels_np[j] == ASPECT_LABEL_MAP['I-ASP'] and probs_np[j][pred_labels_np[j]] >= confidence_threshold) or tokens[j].startswith('##'):
+                            aspect_end = j
+                            j += 1
+                        else:
+                            break
+                    
+                    # Extract the aspect text
+                    aspect_tokens = tokens[aspect_start:aspect_end+1]
+                    # Remove ## from subword tokens and join
+                    aspect_text = ''.join([t.replace('##', '') for t in aspect_tokens])
+                    
+                    # Filter out very short aspects (1-2 characters)
+                    if len(aspect_text) <= 2:
+                        i = aspect_end + 1
+                        continue
+                    
+                    # Calculate character offsets in the original text
+                    # Note: This is an approximation as tokenization can be complex
+                    original_tokens = text.split()
+                    start_char = -1
+                    end_char = -1
+                    
+                    # Simple search for the aspect in original text
+                    aspect_text_lower = aspect_text.lower()
+                    text_lower = text.lower()
+                    start_char = text_lower.find(aspect_text_lower)
+                    if start_char >= 0:
+                        end_char = start_char + len(aspect_text)
+                    
                     aspects.append({
-                        'word': result['word'],
-                        'score': result['score'],
-                        'start': result['start'],
-                        'end': result['end'],
-                        'entity_group': result['entity_group']
+                        'word': aspect_text,
+                        'score': aspect_score,
+                        'start': start_char,
+                        'end': end_char
                     })
+                    
+                    i = aspect_end + 1
+                else:
+                    i += 1
             
-            # Merge aspect terms based on B-ASP and I-ASP tags
-            merged_aspects = []
-            current_aspect = None
-            
-            for aspect in aspects:
-                # Start a new aspect with B-ASP tag
-                if aspect['entity_group'] == 'B-ASP':
-                    if current_aspect is not None:
-                        merged_aspects.append(current_aspect)
-                    current_aspect = {
-                        'word': aspect['word'],
-                        'score': aspect['score'],
-                        'start': aspect['start'],
-                        'end': aspect['end']
-                    }
-                # Continue current aspect with I-ASP tag
-                elif aspect['entity_group'] == 'I-ASP' and current_aspect is not None:
-                    # Only merge if they are adjacent or very close
-                    if aspect['start'] - current_aspect['end'] <= 3:
-                        # Add space if needed 
-                        if aspect['start'] > current_aspect['end']:
-                            current_aspect['word'] += ' '
-                        # Add the word without '##' prefix (BERT tokenization artifact)
-                        current_aspect['word'] += aspect['word'].replace('##', '')
-                        current_aspect['end'] = aspect['end']
-                        # Update the score (average)
-                        current_aspect['score'] = (current_aspect['score'] + aspect['score']) / 2
-                    else:
-                        # If too far apart, treat as a new aspect
-                        merged_aspects.append(current_aspect)
-                        current_aspect = {
-                            'word': aspect['word'],
-                            'score': aspect['score'],
-                            'start': aspect['start'],
-                            'end': aspect['end']
-                        }
-            
-            if current_aspect is not None:
-                merged_aspects.append(current_aspect)
-            
-            # Clean up aspect words
-            for aspect in merged_aspects:
-                # Remove any remaining BERT tokenization artifacts
-                aspect['word'] = re.sub(r'##', '', aspect['word'])
-                # Remove extra spaces
-                aspect['word'] = re.sub(r'\s+', ' ', aspect['word']).strip()
-            
-            return merged_aspects
+            return aspects
         except Exception as e:
             logger.error(f"Error in aspect extraction: {str(e)}")
             return []
@@ -582,22 +921,35 @@ class ABSAPipeline:
         """Classify sentiment for a given text-aspect pair"""
         if not text or not aspect:
             logger.warning("Empty text or aspect provided for sentiment classification")
-            return {'label': '1', 'score': 0.0}  # Default to neutral
+            return {'label': 1, 'score': 0.0}  # Default to neutral
         
         try:
-            # Run sentiment classification
-            result = self.sentiment_pipeline(f"{text} [SEP] {aspect}")
+            # Tokenize the input
+            inputs = self.sentiment_tokenizer(text, aspect, return_tensors="pt", truncation=True, padding=True)
             
-            # Convert from pipeline output format
-            sentiment = {
-                'label': result[0]['label'],
-                'score': result[0]['score']
+            # Move to GPU if available
+            device = next(self.sentiment_model.parameters()).device
+            inputs = {k: v.to(device) for k, v in inputs.items()}
+            
+            # Get the predictions
+            with torch.no_grad():
+                outputs = self.sentiment_model(**inputs)
+                predictions = outputs.logits
+            
+            # Convert to probabilities
+            probs = torch.nn.functional.softmax(predictions, dim=1)
+            # Get the predicted label
+            pred_label = torch.argmax(probs, dim=1).item()
+            # Get the confidence score
+            confidence = float(probs[0][pred_label])
+            
+            return {
+                'label': pred_label,
+                'score': confidence
             }
-            
-            return sentiment
         except Exception as e:
             logger.error(f"Error in sentiment classification: {str(e)}")
-            return {'label': '1', 'score': 0.0}  # Default to neutral
+            return {'label': 1, 'score': 0.0}  # Default to neutral
     
     def analyze(self, text):
         """Full ABSA pipeline: extract aspects and determine their sentiment"""
@@ -624,7 +976,7 @@ class ABSAPipeline:
             
             results.append({
                 'aspect': aspect_term,
-                'sentiment': SENTIMENT_LABELS[int(sentiment['label'])],
+                'sentiment': SENTIMENT_LABELS[sentiment['label']],
                 'sentiment_score': sentiment['score'],
                 'aspect_score': aspect['score'],
                 'start': aspect['start'],
