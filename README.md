@@ -37,6 +37,11 @@ The scraping is done using the Scrapy library, which uses spiders to scrape spec
 │       ├── processed_aspect_data_train.json
 │       ├── processed_aspect_data_val.json
 │       └── processed_aspect_data_test.json
+├── data/
+│   └── filtered_review_data_r/
+│       ├── processed_aspect_data_train.json
+│       ├── processed_aspect_data_val.json
+│       └── processed_aspect_data_test.json
 ├── saved_models/
 │   ├── aspect_extractor_model/
 │   └── aspect_sentiment_model/
@@ -53,7 +58,15 @@ The scraping is done using the Scrapy library, which uses spiders to scrape spec
 │   ├── inference.py
 │   ├── metrics.py
 │   └── test.py
+├── src_roB/
+│   ├── model_r.py
+│   ├── train_r.py
+│   ├── data_prep_r.py
+│   └── inference_r.py
 ```
+filtered_data: test_proc from the .csv . test_proc: comments are spell checked, lemmatizationed, function preprocessed (algoriths of bro) for the greekBERT fine tuning and tokens.
+filtered_data_r: test_proc from the .csv . test_proc: comments are spell checked, lemmatizationed, function preprocessed (algoriths of bro) for the roBERTa fine tuning and tokens.
+filtered_review_data_r: reviews from the .csv . reviews: comments are just spell checked for the greekBERT fine tuning and tokens.
 
 ## Setup
 
@@ -200,4 +213,43 @@ These improvements help the model better handle the imbalanced distribution of s
 - **Data augmentation**: Generating more examples with labeled aspects would help the model learn to identify a wider variety of aspects
 - **Fine-tuning confidence thresholds**: Lowering confidence thresholds for aspect extraction may improve recall at the cost of precision
 - **Greek-specific pre-processing**: Additional pre-processing tailored specifically to Greek text could improve aspect extraction
+
+## src_roB Folder
+
+The `src_roB` folder implements the same functionality as the `src` folder but utilizes the Greek RoBERTa model for Aspect-Based Sentiment Analysis (ABSA). 
+
+### Training the Models
+
+To train both the aspect extraction and sentiment classification models using RoBERTa, use the following command:
+
+```bash
+python src_roB/train_r.py [OPTIONS]
+```
+
+#### Training Arguments
+
+You can customize the training process with the following arguments:
+
+- `--epochs`: Number of training epochs (default: 5)
+- `--train_ate_epochs`: Number of epochs to train the Aspect Term Extraction model (overrides `--epochs` for ATE)
+- `--train_asc_epochs`: Number of epochs to train the Aspect Sentiment Classification model (overrides `--epochs` for ASC)
+- `--resume`: Resume training from existing checkpoints
+- `--train_ate_only`: Train only the Aspect Term Extraction model
+- `--train_asc_only`: Train only the Aspect Sentiment Classification model
+- `--learning_rate`: Learning rate for training (default: 3e-5)
+- `--batch_size`: Batch size for training (default: 16)
+- `--patience`: Patience for early stopping (default: 30)
+- `--augment_data`: Use data augmentation techniques to improve training
+- `--include_adjectives`: Include adjectives during training (default: False)
+- `--data_dir`: Directory containing the processed data files (default: `data/filtered_data_r`)
+
+### Data Preparation
+
+The `data_prep_r.py` script preprocesses raw data into a structured format for training and evaluation, specifically for the Greek RoBERTa model.
+
+#### Filtered Data Directories
+
+- **`filtered_data_r`**: This directory contains data encoded for RoBERTa in the same way as done for BERT. It includes processed aspect data for training the models.
+  
+- **`filtered_review_data_r`**: This directory contains clean text reviews of the data, which can be used to train the model in a different, more comprehensive way.
 

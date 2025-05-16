@@ -146,8 +146,23 @@ def generate_bio_labels(text, char_spans):
     
     return tokens, labels
 
-def process_data(input_file, output_dir, aspect_keywords_file, filter_noaspects=False):
-    """Process data with improved BIO tagging for RoBERTa model."""
+def process_data(input_file, output_dir, aspect_keywords_file, filter_noaspects=False, use_reviews_column=False):
+    """
+    Process data with improved BIO tagging for RoBERTa model.
+    
+    Parameters:
+    -----------
+    input_file : str
+        Path to the input CSV file
+    output_dir : str
+        Directory to save processed data
+    aspect_keywords_file : str
+        Path to aspect keywords mapping JSON file
+    filter_noaspects : bool
+        If True, filter out examples without detected aspect terms
+    use_reviews_column : bool
+        If True, use the 'reviews' column for text content instead of 'text_proc'
+    """
     # Load aspect keywords from JSON
     with open(aspect_keywords_file, "r", encoding="utf-8") as f:
         aspect_keywords_map = json.load(f)
@@ -163,9 +178,18 @@ def process_data(input_file, output_dir, aspect_keywords_file, filter_noaspects=
     rows_with_aspects = 0
     total_aspects_found = 0
     
+    # Determine which column to use for text content
+    text_column = "reviews" if use_reviews_column else "text_proc"
+    logger.info(f"Using '{text_column}' column for text content")
+    
     for idx, row in tqdm(df.iterrows(), total=total_rows, desc="Processing reviews"):
+        # Check if the chosen column exists in the data
+        if text_column not in row or pd.isna(row[text_column]):
+            logger.warning(f"Row {idx} has no '{text_column}' value, skipping.")
+            continue
+            
         # Apply RoBERTa preprocessing to text
-        text = preprocess_text(row["text_proc"])  # Use processed text
+        text = preprocess_text(row[text_column])
         rated_aspects = extract_rated_aspects(row)
         
         # Find aspect spans
@@ -264,7 +288,19 @@ if __name__ == "__main__":
                         help='Path to aspect keywords mapping')
     parser.add_argument('--filter_noaspects', action='store_true',
                         help='Filter out examples without detected aspect terms')
+    parser.add_argument('--use_reviews_column', action='store_true',
+                        help='Use the "reviews" column instead of "text_proc" for text content')
     
     args = parser.parse_args()
     
-    process_data(args.input_file, args.output_dir, args.aspect_keywords, args.filter_noaspects) 
+    # Override output_dir if use_reviews_column is selected
+    if args.use_reviews_column:
+        args.output_dir = 'data/filtered_review_data_r'
+    
+    process_data(
+        args.input_file, 
+        args.output_dir, 
+        args.aspect_keywords, 
+        args.filter_noaspects,
+        args.use_reviews_column
+    ) 

@@ -51,6 +51,10 @@ def parse_args():
     parser = argparse.ArgumentParser(description='Train ABSA models with RoBERTa')
     parser.add_argument('--epochs', type=int, default=NUM_EPOCHS, 
                         help=f'Number of epochs to train (default: {NUM_EPOCHS})')
+    parser.add_argument('--train_ate_epochs', type=int, default=None,
+                        help='Number of epochs to train the Aspect Term Extraction model (overrides --epochs for ATE)')
+    parser.add_argument('--train_asc_epochs', type=int, default=None,
+                        help='Number of epochs to train the Aspect Sentiment Classification model (overrides --epochs for ASC)')
     parser.add_argument('--resume', action='store_true', 
                         help='Resume training from existing model checkpoints')
     parser.add_argument('--train_ate_only', action='store_true',
@@ -67,6 +71,8 @@ def parse_args():
                         help='Use data augmentation techniques to improve training')
     parser.add_argument('--include_adjectives', action='store_true', 
                         help='Include adjectives during training (default: False)')
+    parser.add_argument('--data_dir', type=str, default='data/filtered_data_r',
+                        help='Directory containing the processed data files (default: data/filtered_data_r)')
     return parser.parse_args()
 
 def preprocess_training_data(data, tokenizer, filter_adjectives=False):
@@ -199,13 +205,17 @@ def main():
     tokenizer = initialize_tokenizer()
     
     # Set paths
-    train_dataset_path = "data/filtered_data/processed_aspect_data_train.json"
-    val_dataset_path = "data/filtered_data/processed_aspect_data_val.json"
+    train_dataset_path = f"{args.data_dir}/processed_aspect_data_train.json"
+    val_dataset_path = f"{args.data_dir}/processed_aspect_data_val.json"
     
     # Check if we should train the ATE model
     train_ate = not args.train_asc_only
     # Check if we should train the ASC model
     train_asc = not args.train_ate_only
+    
+    # Determine epochs for each model
+    ate_epochs = args.train_ate_epochs if args.train_ate_epochs is not None else args.epochs
+    asc_epochs = args.train_asc_epochs if args.train_asc_epochs is not None else args.epochs
     
     # Train ATE model if needed
     if train_ate:
@@ -233,7 +243,7 @@ def main():
             train_data = preprocess_training_data(train_data, tokenizer, filter_adjectives=True)
             
         # Save the preprocessed data back to a temporary file
-        temp_train_path = "data/filtered_data/processed_aspect_data_train_filtered_r.json"
+        temp_train_path = f"{args.data_dir}/processed_aspect_data_train_filtered_r.json"
         with open(temp_train_path, 'w', encoding='utf-8') as f:
             for item in train_data:
                 f.write(json.dumps(item) + '\n')
@@ -283,12 +293,12 @@ def main():
         # Load validation dataset
         ate_val_dataset = load_aspect_dataset(val_dataset_path, tokenizer, ASPECT_LABEL_MAP)
         
-        logger.info(f"Starting Aspect Term Extraction training with RoBERTa for {args.epochs} epochs...")
+        logger.info(f"Starting Aspect Term Extraction training with RoBERTa for {ate_epochs} epochs...")
         ate_model, _, ate_metrics = train_aspect_extraction(
             ate_train_dataset, 
             ate_val_dataset, 
             tokenizer,
-            num_epochs=args.epochs,
+            num_epochs=ate_epochs,
             output_dir=output_dir,
             resume_from_checkpoint=args.resume,
             learning_rate=args.learning_rate,
@@ -350,54 +360,40 @@ def main():
                     if asp['entity_group'] == 'ASP' and asp['score'] >= 0.1
                 ]
                 
-                if not filtered_aspects:
-                    # If no aspects were found, skip this example
-                    continue
+                # Even if no aspects were found by the model, we'll use the gold standard aspects
+                # This ensures we have training data for ASC
                 
-                # For each aspect, create an entry with its sentiment
+                # For each aspect in the gold standard data, create an entry with its sentiment
                 for aspect_info in item.get('aspects', []):
                     aspect_term = aspect_info.get('aspect', '')
                     if not aspect_term:
                         continue
                     
-                    # Clean the aspect for better matching
-                    aspect_term_proc = preprocess_text(aspect_term)
-                    
-                    # Find if this aspect was extracted by the model
-                    extracted = False
-                    for extracted_asp in filtered_aspects:
-                        extracted_word_proc = preprocess_text(extracted_asp['word'])
-                        if aspect_term_proc.lower() in extracted_word_proc.lower() or extracted_word_proc.lower() in aspect_term_proc.lower():
-                            extracted = True
-                            break
-                    
-                    # Only use aspects that were successfully extracted
-                    if extracted:
-                        # Get sentiment
-                        if 'sentiment_id' in aspect_info:
-                            sentiment_id = aspect_info['sentiment_id']
-                        elif 'sentiment' in aspect_info:
-                            sentiment_text = aspect_info['sentiment'].lower()
-                            if sentiment_text == 'negative':
-                                sentiment_id = 0
-                            elif sentiment_text == 'neutral':
-                                sentiment_id = 1
-                            elif sentiment_text == 'positive':
-                                sentiment_id = 2
-                            else:
-                                sentiment_id = 1  # Default to neutral
+                    # Get sentiment
+                    if 'sentiment_id' in aspect_info:
+                        sentiment_id = aspect_info['sentiment_id']
+                    elif 'sentiment' in aspect_info:
+                        sentiment_text = aspect_info['sentiment'].lower()
+                        if sentiment_text == 'negative':
+                            sentiment_id = 0
+                        elif sentiment_text == 'neutral':
+                            sentiment_id = 1
+                        elif sentiment_text == 'positive':
+                            sentiment_id = 2
                         else:
                             sentiment_id = 1  # Default to neutral
-                        
-                        # Add to processed data
-                        processed_data.append({
-                            'text': text,
-                            'aspect': aspect_term,
-                            'sentiment_id': sentiment_id
-                        })
+                    else:
+                        sentiment_id = 1  # Default to neutral
+                    
+                    # Add to processed data (using all gold standard aspects regardless of extraction)
+                    processed_data.append({
+                        'text': text,
+                        'aspect': aspect_term,
+                        'sentiment_id': sentiment_id
+                    })
             
             # Save processed data to a temporary file
-            temp_asc_path = "data/filtered_data/processed_asc_data_train_filtered_r.json"
+            temp_asc_path = f"{args.data_dir}/processed_asc_data_train_filtered_r.json"
             with open(temp_asc_path, 'w', encoding='utf-8') as f:
                 for item in processed_data:
                     f.write(json.dumps(item) + '\n')
@@ -422,12 +418,12 @@ def main():
         train_distribution = get_class_distribution(asc_train_dataset)
         logger.info(f"ASC training data sentiment distribution: {train_distribution}")
         
-        logger.info(f"Starting Aspect Sentiment Classification training with RoBERTa for {args.epochs} epochs...")
+        logger.info(f"Starting Aspect Sentiment Classification training with RoBERTa for {asc_epochs} epochs...")
         asc_model, _, asc_metrics = train_aspect_sentiment(
             asc_train_dataset, 
             asc_val_dataset, 
             tokenizer,
-            num_epochs=args.epochs,
+            num_epochs=asc_epochs,
             output_dir=output_dir,
             resume_from_checkpoint=args.resume,
             learning_rate=args.learning_rate,

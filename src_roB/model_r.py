@@ -101,7 +101,7 @@ MODEL_NAME = "pchatz/palobert-base-greek-social-media-v2"
 SAVED_MODELS_DIR = "saved_models_r"
 NUM_EPOCHS = 5  # Start with fewer epochs but use early stopping
 BATCH_SIZE = 16
-LEARNING_RATE = 3e-5
+LEARNING_RATE = 5e-5
 MAX_LENGTH = 128  # Maximum sequence length
 PATIENCE = 30     # Patience for early stopping if plateau reached at min LR
 
@@ -244,29 +244,11 @@ def load_sentiment_dataset(file_path, tokenizer):
     
     formatted_data = []
     for item in data:
-        text = item['text']
-        # Create entries for each aspect and its sentiment
-        for aspect_info in item['aspects']:
-            aspect = aspect_info['aspect']
-            
-            # Check if sentiment_id exists, otherwise try to get it from 'sentiment'
-            if 'sentiment_id' in aspect_info:
-                sentiment_id = aspect_info['sentiment_id']
-            elif 'sentiment' in aspect_info:
-                # Map sentiment text to id if necessary
-                sentiment_text = aspect_info['sentiment'].lower()
-                if sentiment_text == 'negative':
-                    sentiment_id = 0
-                elif sentiment_text == 'neutral':
-                    sentiment_id = 1
-                elif sentiment_text == 'positive':
-                    sentiment_id = 2
-                else:
-                    logger.warning(f"Unknown sentiment value: {sentiment_text}, defaulting to neutral")
-                    sentiment_id = 1
-            else:
-                logger.warning("No sentiment information found in aspect, defaulting to neutral")
-                sentiment_id = 1
+        # Check if this is direct aspect-sentiment data (text, aspect, sentiment_id format)
+        if 'text' in item and 'aspect' in item and 'sentiment_id' in item:
+            text = item['text']
+            aspect = item['aspect']
+            sentiment_id = item['sentiment_id']
             
             # Preprocess text and aspect for RoBERTa
             text_proc = preprocess_text(text)
@@ -290,8 +272,57 @@ def load_sentiment_dataset(file_path, tokenizer):
                 'labels': sentiment_id
             }
             formatted_data.append(entry)
+        
+        # Check for traditional format with nested aspects
+        elif 'text' in item and 'aspects' in item:
+            text = item['text']
+            # Create entries for each aspect and its sentiment
+            for aspect_info in item['aspects']:
+                aspect = aspect_info['aspect']
+                
+                # Check if sentiment_id exists, otherwise try to get it from 'sentiment'
+                if 'sentiment_id' in aspect_info:
+                    sentiment_id = aspect_info['sentiment_id']
+                elif 'sentiment' in aspect_info:
+                    # Map sentiment text to id if necessary
+                    sentiment_text = aspect_info['sentiment'].lower()
+                    if sentiment_text == 'negative':
+                        sentiment_id = 0
+                    elif sentiment_text == 'neutral':
+                        sentiment_id = 1
+                    elif sentiment_text == 'positive':
+                        sentiment_id = 2
+                    else:
+                        logger.warning(f"Unknown sentiment value: {sentiment_text}, defaulting to neutral")
+                        sentiment_id = 1
+                else:
+                    logger.warning("No sentiment information found in aspect, defaulting to neutral")
+                    sentiment_id = 1
+                
+                # Preprocess text and aspect for RoBERTa
+                text_proc = preprocess_text(text)
+                aspect_proc = preprocess_text(aspect)
+                
+                # Encode the text and aspect as a pair for RoBERTa
+                # Note: RoBERTa doesn't use token_type_ids
+                encoding = tokenizer(
+                    text_proc, 
+                    aspect_proc, 
+                    padding="max_length", 
+                    truncation=True, 
+                    max_length=MAX_LENGTH,
+                    return_tensors=None  # Return Python lists
+                )
+                
+                # Create entry without token_type_ids for RoBERTa
+                entry = {
+                    'input_ids': encoding['input_ids'],
+                    'attention_mask': encoding['attention_mask'],
+                    'labels': sentiment_id
+                }
+                formatted_data.append(entry)
     
-    return Dataset.from_list(formatted_data) 
+    return Dataset.from_list(formatted_data)
 
 # ================ METRIC COMPUTATION FUNCTIONS ================
 
@@ -436,12 +467,12 @@ def train_aspect_extraction(train_dataset, val_dataset, tokenizer, num_epochs=NU
         "eval_steps": 100,
         "save_total_limit": 3,
         "metric_for_best_model": "f1",
-        "evaluation_strategy": "steps",
-        "save_strategy": "steps",
+        "eval_strategy": "steps",
         "load_best_model_at_end": True,
         "greater_is_better": True,  # Higher F1 is better
         "warmup_ratio": 0.1,  # Gradual warmup for learning rate
-        "report_to": "none"  # Disable wandb reporting
+        "report_to": "none",  # Disable wandb reporting
+        "remove_unused_columns": False  # Allow datasets with no matching columns
     }
     
     # Add resume_from_checkpoint if needed
@@ -574,13 +605,12 @@ def train_aspect_extraction(train_dataset, val_dataset, tokenizer, num_epochs=NU
                     # For each keyword token, apply a small bias towards B-ASP (label 1)
                     boost_factor = 0.1  # Small boost to bias predictions
                     
-                    # Find embeddings for keyword tokens
-                    for embedding_idx in range(model.embeddings.word_embeddings.weight.shape[0]):
-                        if embedding_idx in self.keyword_token_ids:
-                            # Add a small bias in the direction of predicting B-ASP for this token
-                            classifier.bias.data[1] += boost_factor  # B-ASP is label 1
+                    # RoBERTa models structure differs from BERT
+                    # Just apply a direct bias rather than trying to find embeddings
+                    # Add a small bias towards the B-ASP class for all tokens
+                    classifier.bias.data[1] += boost_factor  # B-ASP is label 1
                     
-                    logger.info(f"Applied keyword embedding boost to classifier")
+                    logger.info(f"Applied keyword bias boost to classifier")
                 else:
                     logger.warning("Classifier doesn't have weights attribute, skipping keyword boosting")
             except Exception as e:
@@ -685,12 +715,12 @@ def train_aspect_sentiment(train_dataset, val_dataset, tokenizer, num_epochs=NUM
         "eval_steps": 100,
         "save_total_limit": 3,
         "metric_for_best_model": "macro_f1",
-        "evaluation_strategy": "steps",
-        "save_strategy": "steps",
+        "eval_strategy": "steps",
         "load_best_model_at_end": True,
         "greater_is_better": True,  # Higher F1 is better
         "warmup_ratio": 0.1,  # Gradual warmup for learning rate
-        "report_to": "none"  # Disable wandb reporting
+        "report_to": "none",  # Disable wandb reporting
+        "remove_unused_columns": False  # Allow datasets with no matching columns
     }
     
     # Add resume_from_checkpoint if needed
@@ -809,7 +839,7 @@ def train_aspect_sentiment(train_dataset, val_dataset, tokenizer, num_epochs=NUM
     
     # Custom loss for handling class imbalance
     class FocalLossTrainer(Trainer):
-        def compute_loss(self, model, inputs, return_outputs=False):
+        def compute_loss(self, model, inputs, return_outputs=False, num_items_in_batch=None):
             labels = inputs.pop("labels")
             outputs = model(**inputs)
             logits = outputs.logits

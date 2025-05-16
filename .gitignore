@@ -6,9 +6,10 @@ saved_models/
 saved_models/aspect_sentiment_model_test/
 saved_models/aspect_extractor_model_test/
 results/
-metrics_plots/
+saved_models_r/
 data/bio_tagging_problems.json
 src/test_bio_tagging.py
 src/visualize_bio_tagging.py
 text_inference.txt
 .gitignore
+src_roB/__pycache__/
