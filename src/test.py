@@ -28,6 +28,57 @@ from transformers import AutoModelForTokenClassification, AutoModelForSequenceCl
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
+# Load aspect keywords from JSON file
+def load_aspect_keywords(file_path="data/aspect_keywords_map.json"):
+    try:
+        with open(file_path, 'r', encoding='utf-8') as f:
+            aspect_keywords_map = json.load(f)
+        
+        # Create a reverse mapping from keyword to aspect family
+        keyword_to_family = {}
+        for family, keywords in aspect_keywords_map.items():
+            for keyword in keywords:
+                keyword_to_family[keyword.lower()] = family
+        
+        return aspect_keywords_map, keyword_to_family
+    except Exception as e:
+        logger.error(f"Error loading aspect keywords map: {str(e)}")
+        return {}, {}
+
+# Load the aspect keywords
+ASPECT_KEYWORDS_MAP, KEYWORD_TO_FAMILY = load_aspect_keywords()
+
+# Common adjectives that should not be treated as aspects
+ADJECTIVES = {
+    'καλη', 'καλή', 'καλο', 'καλό', 'κακη', 'κακή', 'κακο', 'κακό', 'ωραια', 'ωραία', 'ωραιο', 'ωραίο',
+    'εξαιρετικη', 'εξαιρετική', 'εξαιρετικο', 'εξαιρετικό', 'τελεια', 'τέλεια', 'τελειο', 'τέλειο',
+    'χαλια', 'χάλια', 'χαλιο', 'χάλιο', 'αργη', 'αργή', 'αργο', 'αργό', 'γρηγορη', 'γρήγορη', 'γρηγορο', 'γρήγορο',
+    'δυνατη', 'δυνατή', 'δυνατο', 'δυνατό', 'αδυναμη', 'αδύναμη', 'αδυναμο', 'αδύναμο', 
+    'μεγαλη', 'μεγάλη', 'μεγαλο', 'μεγάλο', 'μικρη', 'μικρή', 'μικρο', 'μικρό',
+    'φθηνη', 'φθηνή', 'φθηνο', 'φθηνό', 'ακριβη', 'ακριβή', 'ακριβο', 'ακριβό'
+}
+
+# Non-aspect words that should be filtered out
+NON_ASPECT_WORDS = {
+    'ειναι', 'είναι', 'εχει', 'έχει', 'και', 'with', 'the', 'has', 'is', 'are', 'του', 'της', 'το',
+    'για', 'για', 'απο', 'από', 'στον', 'στην', 'στο', 'στους', 'στις', 'στα', 'με', 'τα', 'τον', 'την'
+}
+
+def get_aspect_family(keyword):
+    """Get the aspect family for a keyword, or 'Unknown' if not found"""
+    keyword_lower = keyword.lower()
+    
+    # Direct match
+    if keyword_lower in KEYWORD_TO_FAMILY:
+        return KEYWORD_TO_FAMILY[keyword_lower]
+    
+    # Check if the keyword starts with or contains any key in the mapping
+    for known_keyword, family in KEYWORD_TO_FAMILY.items():
+        if keyword_lower.startswith(known_keyword) or known_keyword in keyword_lower:
+            return family
+    
+    return "Unknown"
+
 def parse_args():
     parser = argparse.ArgumentParser(description='Test ABSA models')
     parser.add_argument('--test_data', type=str, 
@@ -141,6 +192,13 @@ def test_pipeline(pipeline_args, test_data_path, output_dir, num_examples=5):
             # Run the pipeline
             predictions = pipeline.analyze(text)
             
+            # Assign family to each predicted aspect
+            for pred in predictions:
+                aspect_term = pred['aspect']
+                # Add the aspect family if not already present
+                if 'family' not in pred:
+                    pred['family'] = get_aspect_family(aspect_term)
+            
             # Store results
             result = {
                 'text': text,
@@ -217,7 +275,8 @@ def test_pipeline(pipeline_args, test_data_path, output_dir, num_examples=5):
             if result['predicted_aspects']:
                 for pred in result['predicted_aspects']:
                     sentiment_emoji = "😊" if pred['sentiment'] == "positive" else "😐" if pred['sentiment'] == "neutral" else "😞"
-                    print(f"  • {pred['aspect']} → {pred['sentiment']} {sentiment_emoji} (confidence: {pred['sentiment_score']:.2f})")
+                    family_display = pred.get('family', 'Unknown')
+                    print(f"  • {family_display} (keyword: {pred['aspect']}) → {pred['sentiment']} {sentiment_emoji} (confidence: {pred['sentiment_score']:.2f})")
             else:
                 print("  No aspects predicted.")
         

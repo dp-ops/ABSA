@@ -239,7 +239,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Process data for aspect-based sentiment analysis")
     parser.add_argument('--input_file', default='data/test_2731_reviews.csv',
                         help='Path to input CSV file')
-    parser.add_argument('--output_dir', default='data/processed_data',
+    parser.add_argument('--output_dir', default='data/filtered_data',
                         help='Directory to save processed data')
     parser.add_argument('--aspect_keywords', default='data/aspect_keywords_map.json',
                         help='Path to aspect keywords mapping')

@@ -1,3 +1,6 @@
+#TODO F1OnPlateauCallback: 
+# - Make it so that if it reaches the plateau of 1e-6, and not improve after 30 epochs, it stops training
+
 import json
 import time
 import os
@@ -354,16 +357,17 @@ def train_aspect_extraction(train_dataset, val_dataset, tokenizer, num_epochs=NU
         logger.info(f"Loading model from {output_dir} to resume training")
         model = AutoModelForTokenClassification.from_pretrained(output_dir)
     else:
-        # Create model with higher dropout for better generalization
-        from transformers import BertConfig
-        config = BertConfig.from_pretrained(MODEL_NAME, num_labels=ASPECT_NUM_LABELS)
+        # # Create model with higher dropout for better generalization
+        # from transformers import BertConfig
+        # config = BertConfig.from_pretrained(MODEL_NAME, num_labels=ASPECT_NUM_LABELS)
         
-        # Increase dropout rate for better generalization
-        config.hidden_dropout_prob = 0.3  # Default is usually 0.1
-        config.attention_probs_dropout_prob = 0.3  # Default is usually 0.1
+        # # Increase dropout rate for better generalization
+        # config.hidden_dropout_prob = 0.3  # Default is usually 0.1
+        # config.attention_probs_dropout_prob = 0.3  # Default is usually 0.1
         
         model = AutoModelForTokenClassification.from_pretrained(
-            MODEL_NAME, config=config
+            # MODEL_NAME, config=config
+            MODEL_NAME, num_labels=ASPECT_NUM_LABELS
         )
     
     # Check transformers version for compatibility
@@ -391,10 +395,10 @@ def train_aspect_extraction(train_dataset, val_dataset, tokenizer, num_epochs=NU
         "save_total_limit": 3,
         "metric_for_best_model": "f1",  
         "warmup_ratio": 0.1,  # Gradual warmup for learning rate
-        # Add FP16 training for faster training if GPU supports it
-        "fp16": torch.cuda.is_available(),
-        # Add more aggressive regularization
-        "gradient_accumulation_steps": 2,  # Accumulate gradients to simulate larger batch size
+        # # Add FP16 training for faster training if GPU supports it
+        # "fp16": torch.cuda.is_available(),
+        # # Add more aggressive regularization
+        # "gradient_accumulation_steps": 2,  # Accumulate gradients to simulate larger batch size
     }
     
     # Add resume_from_checkpoint if needed
@@ -430,19 +434,22 @@ def train_aspect_extraction(train_dataset, val_dataset, tokenizer, num_epochs=NU
     # Create a data collator for token classification
     data_collator = DataCollatorForTokenClassification(tokenizer=tokenizer)
 
-    # Create optimizer with weight decay
-    no_decay = ["bias", "LayerNorm.weight"]
-    optimizer_grouped_parameters = [
-        {
-            "params": [p for n, p in model.named_parameters() if not any(nd in n for nd in no_decay)],
-            "weight_decay": 0.01,
-        },
-        {
-            "params": [p for n, p in model.named_parameters() if any(nd in n for nd in no_decay)],
-            "weight_decay": 0.0,
-        },
-    ]
-    optimizer = torch.optim.AdamW(optimizer_grouped_parameters, lr=learning_rate)
+    # Create optimizer
+    optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate)
+    
+    # # Create optimizer with weight decay
+    # no_decay = ["bias", "LayerNorm.weight"]
+    # optimizer_grouped_parameters = [
+    #     {
+    #         "params": [p for n, p in model.named_parameters() if not any(nd in n for nd in no_decay)],
+    #         "weight_decay": 0.01,
+    #     },
+    #     {
+    #         "params": [p for n, p in model.named_parameters() if any(nd in n for nd in no_decay)],
+    #         "weight_decay": 0.0,
+    #     },
+    # ]
+    # optimizer = torch.optim.AdamW(optimizer_grouped_parameters, lr=learning_rate)
     
     # Use Transformers get_scheduler for linear warmup
     from transformers import get_scheduler
@@ -460,7 +467,7 @@ def train_aspect_extraction(train_dataset, val_dataset, tokenizer, num_epochs=NU
     
     # Custom callback for learning rate reduction on plateau
     class F1OnPlateauCallback(TrainerCallback):
-        def __init__(self, patience=15, factor=0.8, min_lr=1e-6):
+        def __init__(self, patience=12, factor=0.6, min_lr=1e-6):
             self.patience = patience
             self.factor = factor
             self.min_lr = min_lr
@@ -497,55 +504,56 @@ def train_aspect_extraction(train_dataset, val_dataset, tokenizer, num_epochs=NU
     f1_plateau_callback = F1OnPlateauCallback(patience=15, factor=0.8, min_lr=1e-6)
     
     # Implement focal loss for better handling of class imbalance
-    class FocalLossTrainer(Trainer):
-        def compute_loss(self, model, inputs, return_outputs=False):
-            labels = inputs.get("labels")
-            # Forward pass
-            outputs = model(**inputs)
-            logits = outputs.get("logits")
+    # class FocalLossTrainer(Trainer):
+    #     def compute_loss(self, model, inputs, return_outputs=False, num_items_in_batch=None):
+    #         labels = inputs.get("labels")
+    #         # Forward pass
+    #         outputs = model(**inputs)
+    #         logits = outputs.get("logits")
             
-            # Standard loss - use model's internal loss computation
-            if labels is None:
-                return outputs.get("loss"), outputs
+    #         # Standard loss - use model's internal loss computation
+    #         if labels is None:
+    #             return outputs.get("loss"), outputs
             
-            # Custom focal loss - emphasizes hard examples
-            gamma = 2.0  # Focus parameter - higher means more focus on hard examples
-            alpha = 0.25  # Class balance parameter
+    #         # Custom focal loss - emphasizes hard examples
+    #         gamma = 2.0  # Focus parameter - higher means more focus on hard examples
+    #         alpha = 0.25  # Class balance parameter
             
-            # Convert to one hot
-            batch_size, seq_length, num_labels = logits.shape
-            one_hot = torch.zeros_like(logits)
+    #         # Convert to one hot
+    #         batch_size, seq_length, num_labels = logits.shape
+    #         one_hot = torch.zeros_like(logits)
             
-            # Only consider non-ignored positions
-            mask = (labels >= 0).unsqueeze(-1).expand_as(one_hot)
-            valid_labels = labels.clone()
-            valid_labels[labels < 0] = 0  # Just for indexing, these will be masked out
+    #         # Only consider non-ignored positions
+    #         mask = (labels >= 0).unsqueeze(-1).expand_as(one_hot)
+    #         valid_labels = labels.clone()
+    #         valid_labels[labels < 0] = 0  # Just for indexing, these will be masked out
             
-            # Fill in one hot
-            one_hot.scatter_(2, valid_labels.unsqueeze(-1), 1.0)
+    #         # Fill in one hot
+    #         one_hot.scatter_(2, valid_labels.unsqueeze(-1), 1.0)
             
-            # Apply focal loss calculation
-            probs = torch.softmax(logits, dim=-1)
-            pt = (one_hot * probs).sum(-1)  # Probability of target class
-            pt = torch.clamp(pt, min=1e-7, max=1.0)  # Prevent NaN
+    #         # Apply focal loss calculation
+    #         probs = torch.softmax(logits, dim=-1)
+    #         pt = (one_hot * probs).sum(-1)  # Probability of target class
+    #         pt = torch.clamp(pt, min=1e-7, max=1.0)  # Prevent NaN
             
-            # Focal loss formula: -alpha * (1-pt)^gamma * log(pt)
-            focal_weight = alpha * (1 - pt) ** gamma
+    #         # Focal loss formula: -alpha * (1-pt)^gamma * log(pt)
+    #         focal_weight = alpha * (1 - pt) ** gamma
             
-            # Cross entropy on valid positions
-            loss = -torch.log(pt) * focal_weight
-            loss = loss * mask[:,:,0]  # Apply mask for ignored positions
+    #         # Cross entropy on valid positions
+    #         loss = -torch.log(pt) * focal_weight
+    #         loss = loss * mask[:,:,0]  # Apply mask for ignored positions
             
-            # Average over valid positions
-            num_valid = mask[:,:,0].sum()
-            if num_valid > 0:
-                loss = loss.sum() / num_valid
-            else:
-                loss = loss.sum() * 0.0  # Return 0 if no valid positions
+    #         # Average over valid positions
+    #         num_valid = mask[:,:,0].sum()
+    #         if num_valid > 0:
+    #             loss = loss.sum() / num_valid
+    #         else:
+    #             loss = loss.sum() * 0.0  # Return 0 if no valid positions
             
-            return (loss, outputs) if return_outputs else loss
+    #         return (loss, outputs) if return_outputs else loss
 
-    trainer = FocalLossTrainer(
+    # trainer = FocalLossTrainer(
+    trainer = Trainer(
         model=model,
         args=training_args,
         train_dataset=train_dataset,

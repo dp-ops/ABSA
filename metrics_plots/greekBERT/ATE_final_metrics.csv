@@ -1,0 +1,6 @@
+metric,value
+eval_loss,0.0758909285068512
+eval_precision,0.96045197740113
+eval_recall,0.8082408874801902
+eval_f1,0.8777969018932875
+epoch,150.0
