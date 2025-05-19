@@ -66,7 +66,7 @@ def get_aspect_family(keyword):
 def parse_args():
     parser = argparse.ArgumentParser(description='Test RoBERTa ABSA models')
     parser.add_argument('--test_data', type=str, 
-                        default="data/filtered_data/processed_aspect_data_test.json",
+                        default="data/filtered_data_r/processed_aspect_data_test.json",
                         help='Path to test data file')
     parser.add_argument('--aspect_model', type=str, 
                         default=ASPECT_MODEL_PATH,

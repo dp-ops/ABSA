@@ -13,3 +13,4 @@ src/visualize_bio_tagging.py
 text_inference.txt
 .gitignore
 src_roB/__pycache__/
+results_r/

@@ -226,22 +226,52 @@ To train both the aspect extraction and sentiment classification models using Ro
 python src_roB/train_r.py [OPTIONS]
 ```
 
-#### Training Arguments
+### Training Arguments
 
 You can customize the training process with the following arguments:
 
 - `--epochs`: Number of training epochs (default: 5)
-- `--train_ate_epochs`: Number of epochs to train the Aspect Term Extraction model (overrides `--epochs` for ATE)
-- `--train_asc_epochs`: Number of epochs to train the Aspect Sentiment Classification model (overrides `--epochs` for ASC)
-- `--resume`: Resume training from existing checkpoints
-- `--train_ate_only`: Train only the Aspect Term Extraction model
-- `--train_asc_only`: Train only the Aspect Sentiment Classification model
-- `--learning_rate`: Learning rate for training (default: 3e-5)
-- `--batch_size`: Batch size for training (default: 16)
-- `--patience`: Patience for early stopping (default: 30)
-- `--augment_data`: Use data augmentation techniques to improve training
-- `--include_adjectives`: Include adjectives during training (default: False)
-- `--data_dir`: Directory containing the processed data files (default: `data/filtered_data_r`)
+- `--train_ate_epochs`: Number of epochs to train the Aspect Term Extraction model (overrides `--epochs` for ATE). If not provided, ATE training will be skipped.
+- `--train_asc_epochs`: Number of epochs to train the Aspect Sentiment Classification model (overrides `--epochs` for ASC). If not provided, ASC training will be skipped.
+- `--resume`: Resume training from existing checkpoints.
+- `--learning_rate`: Learning rate for training (default: 3e-5).
+- `--batch_size`: Batch size for training (default: 16).
+- `--patience`: Patience for early stopping (default: 30).
+- `--augment_data`: Use data augmentation techniques to improve training.
+- `--include_adjectives`: Include adjectives during training (default: False).
+- `--data_dir`: Directory containing the processed data files (default: `data/filtered_data_r`).
+- `--use_focal_loss`: Use focal loss instead of cross-entropy for training.
+- `--gradient_accumulation`: Number of steps to accumulate gradients (default: 1).
+- `--class_weights`: Comma-separated class weights for O, B-ASP, I-ASP (default: `0.5,5,5`).
+
+### Examples
+
+1. **Resume training from checkpoints:**
+   ```bash
+   python src_roB/train_r.py --resume
+   ```
+2. **Train only the Aspect Term Extraction model:**
+   ```bash
+   python src_roB/train_r.py --train_ate_epochs 5
+   ```
+3. **Train only the Aspect Sentiment model with more epochs:**
+   ```bash
+   python src_roB/train_r.py --train_asc_epochs 10
+   ```
+4. **Train with focal loss:**
+   ```bash
+   python src_roB/train_r.py --train_ate_epochs 5 --use_focal_loss
+   ```
+5. **Train with gradient accumulation:**
+   ```bash
+   python src_roB/train_r.py --train_ate_epochs 5 --gradient_accumulation 2
+   ```
+
+### Notes on Training
+
+- The training scripts have been updated to allow for more flexible training configurations, including the ability to skip training if specific epoch arguments are not provided.
+- Focal loss can now be utilized to address class imbalance during training, enhancing the model's performance on underrepresented classes.
+- Gradient accumulation is supported to help with training stability, especially when working with larger batch sizes that may not fit into memory.
 
 ### Data Preparation
 
