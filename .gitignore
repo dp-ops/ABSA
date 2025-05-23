@@ -7,6 +7,7 @@ saved_models/aspect_sentiment_model_test/
 saved_models/aspect_extractor_model_test/
 results/
 saved_models_r/
+models/
 data/bio_tagging_problems.json
 src/test_bio_tagging.py
 src/visualize_bio_tagging.py
