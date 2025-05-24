@@ -999,7 +999,7 @@ def train_aspect_extraction(train_dataset, val_dataset, tokenizer, num_epochs=NU
     scheduler_ref = lr_scheduler
 
     lr_reduction_patience_ate = max(2, patience // 2)
-    early_stop_patience_ate = 3 * patience
+    early_stop_patience_ate = 4 * patience
 
     custom_lr_scheduler_callback = CustomLearningRateSchedulerCallback(
         optimizer=optimizer_ref,
@@ -1554,9 +1554,20 @@ def compute_asc_metrics(p):
         }
 
 # Add train_aspect_sentiment function
-def train_aspect_sentiment(train_dataset, val_dataset, tokenizer, num_epochs=NUM_EPOCHS, output_dir=None, 
-                           resume_from_checkpoint_cli_flag=False, learning_rate=LEARNING_RATE, batch_size=BATCH_SIZE, 
-                           patience=PATIENCE, gradient_clipping=1.0, class_weights=None):
+def train_aspect_sentiment(
+    train_dataset, 
+    val_dataset, 
+    tokenizer, 
+    num_epochs=NUM_EPOCHS, 
+    output_dir=None, 
+    resume_from_checkpoint_cli_flag=False, 
+    learning_rate=LEARNING_RATE, 
+    batch_size=BATCH_SIZE, 
+    patience=PATIENCE, 
+    gradient_clipping=1.0, 
+    class_weights=None,
+    lr_reduction_patience_asc=None
+):
     """
     Train the Aspect Sentiment Classification model using XLM-RoBERTa
     
@@ -1572,6 +1583,7 @@ def train_aspect_sentiment(train_dataset, val_dataset, tokenizer, num_epochs=NUM
         patience: Patience for early stopping after reaching min learning rate (in evaluations)
         gradient_clipping: Gradient clipping value
         class_weights: Optional class weights tensor for handling class imbalance
+        lr_reduction_patience_asc: Optional learning rate reduction patience for ASC training
     """
     if output_dir is None:
         output_dir = SENTIMENT_MODEL_PATH
@@ -1611,21 +1623,21 @@ def train_aspect_sentiment(train_dataset, val_dataset, tokenizer, num_epochs=NUM
     logger.info(f"Initializing standard XLM-RoBERTa for sequence classification (model structure).")
     from transformers import XLMRobertaConfig
     config = XLMRobertaConfig.from_pretrained(MODEL_NAME, num_labels=SENTIMENT_NUM_LABELS)
-    config.hidden_dropout_prob = 0.2 # ASC specific dropout
-    config.attention_probs_dropout_prob = 0.2 # ASC specific dropout
+    config.hidden_dropout_prob = 0.15 # ASC specific dropout - Aligned to ATE's non-CRF
+    config.attention_probs_dropout_prob = 0.15 # ASC specific dropout - Aligned to ATE's non-CRF
     model = AutoModelForSequenceClassification.from_pretrained(MODEL_NAME, config=config)
         
     # Configure appropriate training arguments
     train_args_dict = {
         "output_dir": checkpoints_subdir_path, # Checkpoints saved here
         "logging_dir": logs_subdir_path,       # Logs saved here
-        "logging_steps": 50,
+        "logging_steps": 60, # Aligned with ATE
         "num_train_epochs": num_epochs,
         "per_device_train_batch_size": batch_size,
         "per_device_eval_batch_size": batch_size,
         "weight_decay": 0.01,
-        "save_steps": 100, # Consider making this configurable
-        "eval_steps": 100, # Consider making this configurable
+        "save_steps": 120, # Aligned with ATE
+        "eval_steps": 120, # Aligned with ATE
         "save_total_limit": 3,
         "metric_for_best_model": "macro_f1",
         "eval_strategy": "steps",
@@ -1641,18 +1653,7 @@ def train_aspect_sentiment(train_dataset, val_dataset, tokenizer, num_epochs=NUM
     
     training_args = TrainingArguments(**train_args_dict)
     
-    no_decay = ["bias", "LayerNorm.weight"]
-    optimizer_grouped_parameters = [
-        {
-            "params": [p for n, p in model.named_parameters() if not any(nd in n for nd in no_decay)],
-            "weight_decay": 0.01,
-        },
-        {
-            "params": [p for n, p in model.named_parameters() if any(nd in n for nd in no_decay)],
-            "weight_decay": 0.0,
-        },
-    ]
-    optimizer = torch.optim.AdamW(optimizer_grouped_parameters, lr=learning_rate)
+    optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate) # Aligned with ATE's optimizer
     logger.info(f"Using AdamW optimizer with learning rate: {learning_rate}")
     
     from transformers import get_scheduler
@@ -1680,8 +1681,9 @@ def train_aspect_sentiment(train_dataset, val_dataset, tokenizer, num_epochs=NUM
     optimizer_ref = optimizer
     scheduler_ref = lr_scheduler
 
-    lr_reduction_patience_asc = max(2, patience // 2)
-    early_stop_patience_asc = patience + 4 # Original: patience + 4, user seems to use 3*patience for ATE stop. Sticking to original for ASC.
+    if lr_reduction_patience_asc is None:
+        lr_reduction_patience_asc = max(2, patience // 2)
+    early_stop_patience_asc = 3 * patience # Aligned with ATE logic
 
     custom_lr_scheduler_callback = CustomLearningRateSchedulerCallback(
         optimizer=optimizer_ref,
@@ -1689,7 +1691,7 @@ def train_aspect_sentiment(train_dataset, val_dataset, tokenizer, num_epochs=NUM
         metric_name="eval_macro_f1",
         patience=lr_reduction_patience_asc,
         factor=0.5,
-        min_lr=1e-6,
+        min_lr=1e-9,
         stopping_patience=early_stop_patience_asc 
     )
     
@@ -1720,9 +1722,9 @@ def train_aspect_sentiment(train_dataset, val_dataset, tokenizer, num_epochs=NUM
                 # Move class weights to the same device as logits
                 weights = self.class_weights.to(logits.device)
                 
-                # Apply focal loss with class weights
-                gamma = 2.0  # Focus parameter
-                alpha = 0.25  # Balance parameter
+                # Apply focal loss with per-class alpha (aligned with class weights)
+                gamma = 3.0  # Focus parameter
+                alpha = weights  # Use class weights as per-class alpha
                 
                 # Compute cross entropy with class weights
                 ce_loss = F.cross_entropy(logits, labels, weight=weights, reduction='none')
@@ -1730,27 +1732,19 @@ def train_aspect_sentiment(train_dataset, val_dataset, tokenizer, num_epochs=NUM
                 # Compute focal weights
                 probs = torch.softmax(logits, dim=1)
                 pt = probs.gather(1, labels.unsqueeze(1)).squeeze(1)
-                focal_weights = alpha * (1 - pt) ** gamma
+                focal_weights = alpha[labels] * (1 - pt) ** gamma  # Index alpha by labels
                 
                 # Apply focal weights
                 loss = focal_weights * ce_loss
                 loss = loss.mean()
             else:
                 # Standard focal loss without class weights
-                gamma = 2.0  # Focus parameter - higher means more focus on hard examples
-                
-                # Convert labels to one-hot
+                gamma = 3.0
                 num_labels = len(SENTIMENT_LABELS)
                 one_hot = torch.zeros_like(logits).scatter_(1, labels.unsqueeze(1), 1.0)
-                
-                # Compute probabilities
                 probs = torch.nn.functional.softmax(logits, dim=1)
-                
-                # Calculate focal weights: (1-pt)^gamma
-                pt = (one_hot * probs).sum(dim=1)  # Get the probability of the correct class
+                pt = (one_hot * probs).sum(dim=1)
                 focal_weights = (1 - pt) ** gamma
-                
-                # Apply cross entropy with focal weights
                 per_sample_losses = -torch.log(pt + 1e-10) * focal_weights
                 loss = per_sample_losses.mean()
             

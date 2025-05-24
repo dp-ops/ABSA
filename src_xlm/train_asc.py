@@ -414,11 +414,13 @@ def main():
         tokenizer,
         num_epochs=args.epochs,
         output_dir=SENTIMENT_MODEL_PATH,
-        resume_from_checkpoint=args.resume,
+        resume_from_checkpoint_cli_flag=args.resume,
         learning_rate=args.learning_rate,
         batch_size=args.batch_size,
         gradient_clipping=args.gradient_clipping,
-        class_weights=class_weights  # Pass class weights to training function
+        class_weights=class_weights,
+        patience=args.patience,
+        lr_reduction_patience_asc=args.patience  # Use the exact --patience value
     )
     
     # Log final metrics

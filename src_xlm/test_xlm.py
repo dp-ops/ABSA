@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Test XLM-RoBERTa ATE model with CRF layer")
-    parser.add_argument('--test_file', default='data/filtered_data_xlm/processed_aspect_data_test.json',
+    parser.add_argument('--test_file', default='data/filtered_review_data_xlm/processed_aspect_data_test.json',
                         help='Path to test data file')
     parser.add_argument('--model_path', default=ASPECT_MODEL_PATH,
                         help='Path to trained model')
