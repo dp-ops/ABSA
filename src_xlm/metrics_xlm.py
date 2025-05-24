@@ -5,16 +5,16 @@ import argparse
 import matplotlib.pyplot as plt
 import numpy as np
 import csv
-# from pathlib import Path
+from model import ASPECT_MODEL_PATH, SENTIMENT_MODEL_PATH
 
 # Set up argument parser
 def parse_args():
-    parser = argparse.ArgumentParser(description='Visualize RoBERTa training metrics')
-    parser.add_argument('--aspect_model_dir', type=str, default='saved_models_r/aspect_extractor_model',
+    parser = argparse.ArgumentParser(description='Visualize XLM-RoBERTa training metrics')
+    parser.add_argument('--aspect_model_dir', type=str, default=ASPECT_MODEL_PATH,
                        help='Directory containing aspect extractor model logs')
-    parser.add_argument('--sentiment_model_dir', type=str, default='saved_models_r/aspect_sentiment_model',
+    parser.add_argument('--sentiment_model_dir', type=str, default=SENTIMENT_MODEL_PATH,
                        help='Directory containing aspect sentiment model logs')
-    parser.add_argument('--output_dir', type=str, default='metrics_plots/roBERTa',
+    parser.add_argument('--output_dir', type=str, default='metrics_plots/xlm_roberta',
                        help='Directory to save metric plots')
     return parser.parse_args()
 
@@ -132,51 +132,7 @@ def save_metrics_to_csv(metrics, model_name, output_dir):
         
         print(f"Evaluation metrics saved to {eval_csv_path}")
     
-    # Save combined metrics (for easier analysis)
-    combined_csv_path = os.path.join(output_dir, f'{model_name}_all_metrics.csv')
-    
-    # Create a mapping from step to all metrics
-    step_to_metrics = {}
-    
-    # Add training metrics
-    for i in range(len(metrics['training_steps'])):
-        step = metrics['training_steps'][i]
-        if step not in step_to_metrics:
-            step_to_metrics[step] = {}
-        step_to_metrics[step]['epoch'] = metrics['training_epoch'][i]
-        step_to_metrics[step]['loss'] = metrics['training_loss'][i]
-    
-    # Add evaluation metrics
-    for i in range(len(metrics['eval_steps'])):
-        step = metrics['eval_steps'][i]
-        if step not in step_to_metrics:
-            step_to_metrics[step] = {}
-        
-        if i < len(metrics['eval_epoch']):
-            step_to_metrics[step]['epoch'] = metrics['eval_epoch'][i]
-            
-        for metric_name, values in metrics['eval_metrics'].items():
-            if i < len(values):
-                step_to_metrics[step][metric_name.replace('eval_', '')] = values[i]
-    
-    # Determine all field names
-    fieldnames = ['step', 'epoch', 'loss']
-    for metric_name in metrics['eval_metrics'].keys():
-        fieldnames.append(metric_name.replace('eval_', ''))
-    
-    # Save to CSV
-    with open(combined_csv_path, 'w', newline='') as csvfile:
-        writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
-        
-        writer.writeheader()
-        for step in sorted(step_to_metrics.keys()):
-            row = {'step': step}
-            row.update(step_to_metrics[step])
-            writer.writerow(row)
-    
-    print(f"Combined metrics saved to {combined_csv_path}")
-    
-    return train_csv_path, eval_csv_path, combined_csv_path
+    return train_csv_path, eval_csv_path
 
 def plot_training_metrics(metrics, model_name, output_dir):
     """Create plots of training metrics"""
@@ -185,7 +141,7 @@ def plot_training_metrics(metrics, model_name, output_dir):
     # Plot training loss
     plt.figure(figsize=(12, 6))
     plt.plot(metrics['training_steps'], metrics['training_loss'])
-    plt.title(f'{model_name} Training Loss (PaloBERT)')
+    plt.title(f'{model_name} Training Loss (XLM-RoBERTa)')
     plt.xlabel('Training Steps')
     plt.ylabel('Loss')
     plt.grid(True)
@@ -197,7 +153,7 @@ def plot_training_metrics(metrics, model_name, output_dir):
         if len(metric_values) > 1:  # Only plot if we have more than one point
             plt.figure(figsize=(12, 6))
             plt.plot(metrics['eval_steps'], metric_values)
-            plt.title(f'{model_name} {metric_name} (PaloBERT)')
+            plt.title(f'{model_name} {metric_name} (XLM-RoBERTa)')
             plt.xlabel('Training Steps')
             plt.ylabel(metric_name.replace('eval_', '').capitalize())
             plt.grid(True)
@@ -210,7 +166,7 @@ def plot_training_metrics(metrics, model_name, output_dir):
         plt.figure(figsize=(12, 6))
         for metric_name, metric_values in f1_metrics.items():
             plt.plot(metrics['eval_steps'], metric_values, label=metric_name.replace('eval_', ''))
-        plt.title(f'{model_name} F1 Scores (PaloBERT)')
+        plt.title(f'{model_name} F1 Scores (XLM-RoBERTa)')
         plt.xlabel('Training Steps')
         plt.ylabel('F1 Score')
         plt.legend()
@@ -231,7 +187,7 @@ def plot_training_metrics(metrics, model_name, output_dir):
         plt.figure(figsize=(12, 6))
         plt.plot(eval_steps, interp_train_loss, label='Training Loss')
         plt.plot(eval_steps, metrics['eval_metrics']['eval_loss'], label='Validation Loss')
-        plt.title(f'{model_name} Training vs Validation Loss (PaloBERT)')
+        plt.title(f'{model_name} Training vs Validation Loss (XLM-RoBERTa)')
         plt.xlabel('Steps')
         plt.ylabel('Loss')
         plt.legend()
@@ -246,7 +202,7 @@ def main():
     os.makedirs(args.output_dir, exist_ok=True)
     
     # Process Aspect Extraction model metrics
-    print("\nProcessing RoBERTa Aspect Extraction model metrics...")
+    print("\nProcessing XLM-RoBERTa Aspect Extraction model metrics...")
     aspect_trainer_state = load_trainer_state(args.aspect_model_dir)
     if aspect_trainer_state and 'log_history' in aspect_trainer_state:
         aspect_metrics = extract_metrics_from_log_history(aspect_trainer_state['log_history'])
@@ -258,7 +214,7 @@ def main():
         print("No metrics found for Aspect Extraction model")
     
     # Process Aspect Sentiment model metrics
-    print("\nProcessing RoBERTa Aspect Sentiment Classification model metrics...")
+    print("\nProcessing XLM-RoBERTa Aspect Sentiment Classification model metrics...")
     sentiment_trainer_state = load_trainer_state(args.sentiment_model_dir)
     if sentiment_trainer_state and 'log_history' in sentiment_trainer_state:
         sentiment_metrics = extract_metrics_from_log_history(sentiment_trainer_state['log_history'])
@@ -278,7 +234,7 @@ def main():
         try:
             with open(ate_eval_path, 'r') as f:
                 ate_metrics = json.load(f)
-                print("\nRoBERTa Aspect Extraction (ATE) Final Metrics:")
+                print("\nXLM-RoBERTa Aspect Extraction (ATE) Final Metrics:")
                 for key, value in ate_metrics.items():
                     if not key.startswith('eval_runtime') and not key.endswith('_per_second'):
                         print(f"  {key}: {value:.4f}" if isinstance(value, (int, float)) else f"  {key}: {value}")
@@ -302,7 +258,7 @@ def main():
         try:
             with open(asc_eval_path, 'r') as f:
                 asc_metrics = json.load(f)
-                print("\nRoBERTa Aspect Sentiment Classification (ASC) Final Metrics:")
+                print("\nXLM-RoBERTa Aspect Sentiment Classification (ASC) Final Metrics:")
                 for key, value in asc_metrics.items():
                     if not key.startswith('eval_runtime') and not key.endswith('_per_second'):
                         print(f"  {key}: {value:.4f}" if isinstance(value, (int, float)) else f"  {key}: {value}")
@@ -320,8 +276,8 @@ def main():
         except Exception as e:
             print(f"Error loading ASC evaluation metrics: {e}")
     
-    print(f"\nAll RoBERTa model plots saved to {args.output_dir}")
-    print(f"All RoBERTa model metrics saved as CSV files in {args.output_dir}")
+    print(f"\nAll XLM-RoBERTa model plots saved to {args.output_dir}")
+    print(f"All XLM-RoBERTa model metrics saved as CSV files in {args.output_dir}")
 
 if __name__ == "__main__":
     main() 

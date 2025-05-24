@@ -13,25 +13,30 @@ import unicodedata
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-# Initialize the tokenizer for RoBERTa model
-tokenizer = AutoTokenizer.from_pretrained("pchatz/palobert-base-greek-social-media-v2")
+# Initialize the tokenizer for XLM-RoBERTa
+MODEL_NAME = "xlm-roberta-base"
+tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
 
-# Preprocessing function for RoBERTa model
+# Preprocessing function for XLM-RoBERTa (minimal preprocessing)
 def preprocess_text(text):
     """
-    Preprocess text for palobert-base-greek-social-media-v2:
-    - remove all greek diacritics
+    Minimal preprocessing for XLM-RoBERTa:
     - convert to lowercase
-    - remove all punctuation
+    - basic cleaning
     """
-    text = str(text).lower()
-    text = unicodedata.normalize('NFD', text).translate({ord('\N{COMBINING ACUTE ACCENT}'): None})
-    text = re.sub(r'[^\w\s]', '', text)
+    if not text:
+        return ""
+    text = str(text).lower().strip()
+    # Remove excessive whitespace
+    text = re.sub(r'\s+', ' ', text)
     return text
 
-# Tokenization function
+# Tokenization function with offset mapping
 def tokenize_text(text):
-    """Tokenize the preprocessed text and return tokens with offsets."""
+    """
+    Tokenize the preprocessed text and return tokens with offsets.
+    XLM-RoBERTa provides character-level offsets which is important for span recovery.
+    """
     encoded = tokenizer(text, return_offsets_mapping=True)
     tokens = tokenizer.convert_ids_to_tokens(encoded["input_ids"])
     offsets = encoded["offset_mapping"]
@@ -60,12 +65,22 @@ def extract_rated_aspects(row):
     return extracted
 
 def find_aspect_terms_in_text(text, aspect_name, keywords):
-    """Find aspect terms in text using improved matching."""
-    # Preprocess both text and keywords using the same function
+    """
+    Find aspect terms in text using improved matching.
+    
+    Args:
+        text: The text to search in
+        aspect_name: The name of the aspect
+        keywords: List of keywords related to the aspect
+        
+    Returns:
+        List of (start_pos, end_pos, aspect_name) tuples
+    """
+    # Preprocess text
     text_processed = preprocess_text(text)
     spans = []
     
-    # Process keywords - remove diacritics and convert to lowercase
+    # Process keywords - minimal preprocessing
     processed_keywords = []
     for keyword in keywords:
         processed_keyword = preprocess_text(keyword)
@@ -91,7 +106,7 @@ def find_aspect_terms_in_text(text, aspect_name, keywords):
             if start_idx == -1:
                 break
                 
-            # Check if it's a standalone word
+            # Check if it's a standalone word - not strictly necessary for XLM-RoBERTa but helps with precision
             is_standalone = True
             if start_idx > 0 and text_processed[start_idx-1].isalnum():
                 is_standalone = False
@@ -108,17 +123,30 @@ def find_aspect_terms_in_text(text, aspect_name, keywords):
     
     return spans
 
-def generate_bio_labels(text, char_spans):
-    """Generate BIO labels for tokens based on character spans."""
-    # Preprocess text for RoBERTa
-    processed_text = preprocess_text(text)
-    tokens, offsets = tokenize_text(processed_text)
-    labels = ["O"] * len(tokens)  # Initialize all labels as 'O'
+def generate_bio_labels_with_offsets(text, char_spans):
+    """
+    Generate BIO labels for tokens based on character spans with improved offset tracking.
+    
+    Args:
+        text: The text to tokenize
+        char_spans: List of (start, end, aspect_name) tuples
+        
+    Returns:
+        tokens: List of tokens
+        bio_labels: List of BIO labels
+        token_offsets: List of (start, end) offsets for each token
+    """
+    # Get tokens and offsets using the tokenizer
+    tokens, offsets = tokenize_text(text)
+    
+    # Initialize all labels as 'O'
+    bio_labels = ["O"] * len(tokens)
     
     # Sort spans by start position to handle overlapping spans correctly
     char_spans.sort(key=lambda x: x[0])
     
     labeled_tokens = []
+    labeled_spans = []
     
     for (span_start, span_end, aspect_name) in char_spans:
         # Track whether we're inside an aspect span
@@ -126,29 +154,35 @@ def generate_bio_labels(text, char_spans):
         for i, (tok_start, tok_end) in enumerate(offsets):
             if tok_start == 0 and tok_end == 0:  # Skip special tokens
                 continue
+                
             # Check if token overlaps with the aspect span
             if tok_start < span_end and tok_end > span_start:
                 if not inside_aspect:
-                    labels[i] = "B-ASP"  # First token of the aspect
+                    bio_labels[i] = "B-ASP"  # First token of the aspect
                     inside_aspect = True
                     labeled_tokens.append(tokens[i])
+                    # Record the character span this token corresponds to
+                    labeled_spans.append((tok_start, tok_end))
                 else:
-                    labels[i] = "I-ASP"  # Subsequent tokens of the aspect
+                    bio_labels[i] = "I-ASP"  # Subsequent tokens of the aspect
                     labeled_tokens.append(tokens[i])
+                    # Extend the span to include this token
+                    labeled_spans.append((tok_start, tok_end))
             elif inside_aspect:  # If we were inside but now we're not
                 inside_aspect = False
     
     # Debug information
     if labeled_tokens:
-        logger.debug(f"Text: {processed_text}")
+        logger.debug(f"Text: {text}")
         logger.debug(f"Found aspects: {', '.join([s[2] for s in char_spans])}")
         logger.debug(f"Labeled tokens: {', '.join(labeled_tokens)}")
+        logger.debug(f"Token spans: {labeled_spans}")
     
-    return tokens, labels
+    return tokens, bio_labels, offsets
 
 def process_data(input_file, output_dir, aspect_keywords_file, filter_noaspects=False, use_reviews_column=False):
     """
-    Process data with improved BIO tagging for RoBERTa model.
+    Process data with improved BIO tagging for XLM-RoBERTa model.
     
     Parameters:
     -----------
@@ -188,7 +222,7 @@ def process_data(input_file, output_dir, aspect_keywords_file, filter_noaspects=
             logger.warning(f"Row {idx} has no '{text_column}' value, skipping.")
             continue
             
-        # Apply RoBERTa preprocessing to text
+        # Apply minimal preprocessing to text
         text = preprocess_text(row[text_column])
         rated_aspects = extract_rated_aspects(row)
         
@@ -204,8 +238,8 @@ def process_data(input_file, output_dir, aspect_keywords_file, filter_noaspects=
             aspect_spans = find_aspect_terms_in_text(text, aspect_name, keywords)
             char_spans.extend(aspect_spans)
         
-        # Generate BIO labels
-        tokens, bio_labels = generate_bio_labels(text, char_spans)
+        # Generate BIO labels with character offsets
+        tokens, bio_labels, token_offsets = generate_bio_labels_with_offsets(text, char_spans)
         
         # Track metrics
         has_aspects = any(label != "O" for label in bio_labels)
@@ -221,15 +255,56 @@ def process_data(input_file, output_dir, aspect_keywords_file, filter_noaspects=
         if filter_noaspects and not has_aspects:
             continue
         
+        # Extract aspect text spans for validation
+        aspect_spans = []
+        current_aspect = None
+        current_start = None
+        
+        for i, (label, (start, end)) in enumerate(zip(bio_labels, token_offsets)):
+            if label == "B-ASP":
+                # If we were already collecting an aspect, finish it
+                if current_aspect is not None:
+                    aspect_spans.append({
+                        "text": text[current_start:current_aspect[1]],
+                        "start": current_start,
+                        "end": current_aspect[1]
+                    })
+                
+                # Start a new aspect
+                current_aspect = (start, end)
+                current_start = start
+            elif label == "I-ASP" and current_aspect is not None:
+                # Continue the current aspect
+                current_aspect = (current_aspect[0], end)
+            elif current_aspect is not None:
+                # End of an aspect
+                aspect_spans.append({
+                    "text": text[current_start:current_aspect[1]],
+                    "start": current_start,
+                    "end": current_aspect[1]
+                })
+                current_aspect = None
+                current_start = None
+        
+        # Don't forget the last aspect if there is one
+        if current_aspect is not None:
+            aspect_spans.append({
+                "text": text[current_start:current_aspect[1]],
+                "start": current_start,
+                "end": current_aspect[1]
+            })
+        
         # Prepare output
         processed_data.append({
             "text": text,
             "tokens": tokens,
             "bio_labels": bio_labels,
+            "token_offsets": token_offsets,
             "aspects": [{
                 "aspect": asp["aspect"],
                 "sentiment_id": sentiment_to_id[asp["sentiment_str"]]
             } for asp in rated_aspects],
+            "extracted_spans": aspect_spans
         })
     
     logger.info(f"Processed {total_rows} rows")
@@ -247,8 +322,8 @@ def process_data(input_file, output_dir, aspect_keywords_file, filter_noaspects=
             f.write(json.dumps(entry, ensure_ascii=False) + '\n')
     
     # Split into train/val/test datasets
-    train_data, temp_data = train_test_split(processed_data, test_size=0.3, random_state=42)
-    val_data, test_data = train_test_split(temp_data, test_size=0.5, random_state=42)
+    train_data, temp_data = train_test_split(processed_data, test_size=0.4, random_state=2310)
+    val_data, test_data = train_test_split(temp_data, test_size=0.2, random_state=1312)
     
     # Save train data
     train_file = os.path.join(output_dir, "processed_aspect_data_train.json")
@@ -279,10 +354,10 @@ def process_data(input_file, output_dir, aspect_keywords_file, filter_noaspects=
     return full_file, train_file, val_file, test_file
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Process data for aspect-based sentiment analysis with RoBERTa model")
+    parser = argparse.ArgumentParser(description="Process data for aspect-based sentiment analysis with XLM-RoBERTa model")
     parser.add_argument('--input_file', default='data/test_2731_reviews.csv',
                         help='Path to input CSV file')
-    parser.add_argument('--output_dir', default='data/filtered_data_r',
+    parser.add_argument('--output_dir', default='data/filtered_data_xlm',
                         help='Directory to save processed data')
     parser.add_argument('--aspect_keywords', default='data/aspect_keywords_map.json',
                         help='Path to aspect keywords mapping')
@@ -295,7 +370,7 @@ if __name__ == "__main__":
     
     # Override output_dir if use_reviews_column is selected
     if args.use_reviews_column:
-        args.output_dir = 'data/filtered_review_data_r'
+        args.output_dir = 'data/filtered_review_data_xlm'
     
     process_data(
         args.input_file, 
