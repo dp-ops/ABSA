@@ -216,36 +216,52 @@ def process_data(input_file, output_dir, aspect_keywords_file, filter_noaspects=
     text_column = "reviews" if use_reviews_column else "text_proc"
     logger.info(f"Using '{text_column}' column for text content")
     
+    
+    
     for idx, row in tqdm(df.iterrows(), total=total_rows, desc="Processing reviews"):
         # Check if the chosen column exists in the data
         if text_column not in row or pd.isna(row[text_column]):
             logger.warning(f"Row {idx} has no '{text_column}' value, skipping.")
             continue
+        
+        
             
         # Apply minimal preprocessing to text
         text = preprocess_text(row[text_column])
         rated_aspects = extract_rated_aspects(row)
+
         
         # Find aspect spans
         char_spans = []
+
+        existing_aspects=[]
         
         # For each rated aspect, try to find it in the text
         for aspect_obj in rated_aspects:
             aspect_name = aspect_obj["aspect"]
             keywords = aspect_keywords_map.get(aspect_name, [aspect_name.lower()])
             
+ 
+            
             # Find all occurrences of keywords in text
             aspect_spans = find_aspect_terms_in_text(text, aspect_name, keywords)
+            logger.debug(f'Aspect: {aspect_name}, Found spans: {aspect_spans}')
+            if aspect_spans!= []: #store aspects that were found in the text
+                existing_aspects.append(aspect_spans[0][2] if aspect_spans else aspect_name)
+ 
             char_spans.extend(aspect_spans)
-        
+        logger.debug(f'Existing aspects: {existing_aspects}')
         # Generate BIO labels with character offsets
         tokens, bio_labels, token_offsets = generate_bio_labels_with_offsets(text, char_spans)
+
         
         # Track metrics
         has_aspects = any(label != "O" for label in bio_labels)
         if has_aspects:
             rows_with_aspects += 1
             total_aspects_found += len([l for l in bio_labels if l.startswith("B-")])
+        
+        logger.debug(f'Has aspects: {has_aspects}, Rated aspects: {rated_aspects}')
         
         # Debug: Check if any aspects were identified
         if not has_aspects and rated_aspects:
@@ -304,7 +320,8 @@ def process_data(input_file, output_dir, aspect_keywords_file, filter_noaspects=
                 "aspect": asp["aspect"],
                 "sentiment_id": sentiment_to_id[asp["sentiment_str"]]
             } for asp in rated_aspects],
-            "extracted_spans": aspect_spans
+            "extracted_spans": aspect_spans,
+            "existing_aspects": existing_aspects,
         })
     
     logger.info(f"Processed {total_rows} rows")
@@ -343,7 +360,7 @@ def process_data(input_file, output_dir, aspect_keywords_file, filter_noaspects=
         for entry in test_data:
             f.write(json.dumps(entry, ensure_ascii=False) + '\n')
     
-    print(
+    logger.debug(
         f"Processed data saved to:\n"
         f"- Full dataset: {full_file}\n"
         f"- Train: {train_file}\n"
@@ -361,9 +378,9 @@ if __name__ == "__main__":
                         help='Directory to save processed data')
     parser.add_argument('--aspect_keywords', default='data/aspect_keywords_map.json',
                         help='Path to aspect keywords mapping')
-    parser.add_argument('--filter_noaspects', action='store_true',
+    parser.add_argument('--filter_noaspects', action='store_true', 
                         help='Filter out examples without detected aspect terms')
-    parser.add_argument('--use_reviews_column', action='store_true',
+    parser.add_argument('--use_reviews_column', action='store_true', default=True,
                         help='Use the "reviews" column instead of "text_proc" for text content')
     
     args = parser.parse_args()
