@@ -883,7 +883,7 @@ def find_latest_complete_checkpoint(checkpoints_dir):
 
 def train_aspect_extraction(train_dataset, val_dataset, tokenizer, num_epochs=NUM_EPOCHS, output_dir=None, 
                           resume_from_checkpoint_cli_flag=False, learning_rate=LEARNING_RATE, batch_size=BATCH_SIZE, 
-                          use_crf=True, patience=PATIENCE, gradient_clipping=1.0):
+                          use_crf=True, patience=PATIENCE, gradient_clipping=1.0, lr_reduction_patience_ate=None):
     """
     Train the Aspect Term Extraction model using XLM-RoBERTa with CRF layer
     
@@ -899,6 +899,7 @@ def train_aspect_extraction(train_dataset, val_dataset, tokenizer, num_epochs=NU
         use_crf: Whether to use CRF layer
         patience: Patience for early stopping after reaching min learning rate (in evaluations)
         gradient_clipping: Gradient clipping parameter
+        lr_reduction_patience_ate: Optional learning rate reduction patience for ATE training
     """
     if output_dir is None:
         output_dir = ASPECT_MODEL_PATH
@@ -998,7 +999,8 @@ def train_aspect_extraction(train_dataset, val_dataset, tokenizer, num_epochs=NU
     optimizer_ref = optimizer
     scheduler_ref = lr_scheduler
 
-    lr_reduction_patience_ate = max(2, patience // 2)
+    if lr_reduction_patience_ate is None:
+        lr_reduction_patience_ate = max(2, patience // 2)
     early_stop_patience_ate = 4 * patience
 
     custom_lr_scheduler_callback = CustomLearningRateSchedulerCallback(
@@ -1006,12 +1008,12 @@ def train_aspect_extraction(train_dataset, val_dataset, tokenizer, num_epochs=NU
         scheduler=scheduler_ref,
         metric_name="eval_f1",
         patience=lr_reduction_patience_ate,
-        factor=0.5,
-        min_lr=1e-6,
+        factor=0.75,
+        min_lr=1e-7,
         stopping_patience=early_stop_patience_ate
     )
     
-    logger.info(f"ATE LR reduction patience: {lr_reduction_patience_ate}, Factor: 0.5, Early stopping patience: {early_stop_patience_ate}")
+    logger.info(f"ATE LR reduction patience: {lr_reduction_patience_ate}, Factor: 0.75, Early stopping patience: {early_stop_patience_ate}")
     
     early_stopping_callback = EarlyStoppingCallback(
         early_stopping_patience=early_stop_patience_ate,

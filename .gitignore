@@ -15,3 +15,13 @@ text_inference.txt
 .gitignore
 src_roB/__pycache__/
 results_r/
+src_xlm/__pycache__/
+test_aspect_identification.py
+src_xlm/data_prep_r.py
+src_xlm/inference_r.py
+src_xlm/model_r.py
+src_xlm/test_r.py
+src_xlm/test_class_weights.py
+src_xlm/train_r.py
+src_xlm/metrics_r.py
+README_XLM.md

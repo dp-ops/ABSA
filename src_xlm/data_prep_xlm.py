@@ -213,7 +213,7 @@ def process_data(input_file, output_dir, aspect_keywords_file, filter_noaspects=
     total_aspects_found = 0
     
     # Determine which column to use for text content
-    text_column = "reviews" if use_reviews_column else "text_proc"
+    text_column = "reviews" if use_reviews_column else "text_lemma"
     logger.info(f"Using '{text_column}' column for text content")
     
     
@@ -261,8 +261,6 @@ def process_data(input_file, output_dir, aspect_keywords_file, filter_noaspects=
             rows_with_aspects += 1
             total_aspects_found += len([l for l in bio_labels if l.startswith("B-")])
         
-        logger.debug(f'Has aspects: {has_aspects}, Rated aspects: {rated_aspects}')
-        
         # Debug: Check if any aspects were identified
         if not has_aspects and rated_aspects:
             logger.debug(f"No aspect spans found in text: {text} for aspects: {[a['aspect'] for a in rated_aspects]}")
@@ -272,43 +270,47 @@ def process_data(input_file, output_dir, aspect_keywords_file, filter_noaspects=
             continue
         
         # Extract aspect text spans for validation
-        aspect_spans = []
-        current_aspect = None
-        current_start = None
-        
+        aspect_spans_for_output = []
+        current_aspect_text = None
+        current_start_char = None
+
         for i, (label, (start, end)) in enumerate(zip(bio_labels, token_offsets)):
             if label == "B-ASP":
-                # If we were already collecting an aspect, finish it
-                if current_aspect is not None:
-                    aspect_spans.append({
-                        "text": text[current_start:current_aspect[1]],
-                        "start": current_start,
-                        "end": current_aspect[1]
+                if current_aspect_text is not None:
+                    aspect_spans_for_output.append({
+                        "text": text[current_start_char:current_aspect_text[1]],
+                        "start": current_start_char,
+                        "end": current_aspect_text[1]
                     })
-                
-                # Start a new aspect
-                current_aspect = (start, end)
-                current_start = start
-            elif label == "I-ASP" and current_aspect is not None:
-                # Continue the current aspect
-                current_aspect = (current_aspect[0], end)
-            elif current_aspect is not None:
-                # End of an aspect
-                aspect_spans.append({
-                    "text": text[current_start:current_aspect[1]],
-                    "start": current_start,
-                    "end": current_aspect[1]
+                current_aspect_text = (start, end)
+                current_start_char = start
+            elif label == "I-ASP" and current_aspect_text is not None:
+                current_aspect_text = (current_aspect_text[0], end)
+            elif current_aspect_text is not None:
+                aspect_spans_for_output.append({
+                    "text": text[current_start_char:current_aspect_text[1]],
+                    "start": current_start_char,
+                    "end": current_aspect_text[1]
                 })
-                current_aspect = None
-                current_start = None
+                current_aspect_text = None
+                current_start_char = None
         
-        # Don't forget the last aspect if there is one
-        if current_aspect is not None:
-            aspect_spans.append({
-                "text": text[current_start:current_aspect[1]],
-                "start": current_start,
-                "end": current_aspect[1]
+        if current_aspect_text is not None:
+            aspect_spans_for_output.append({
+                "text": text[current_start_char:current_aspect_text[1]],
+                "start": current_start_char,
+                "end": current_aspect_text[1]
             })
+
+        # Get unique aspect names that were actually found in the text from char_spans
+        detected_aspect_names = set()
+        if char_spans: # char_spans contains (start_idx, end_idx, aspect_name)
+            detected_aspect_names = {span[2] for span in char_spans}
+
+        # Filter rated_aspects to only include those found in the text
+        filtered_rated_aspects = [
+            asp for asp in rated_aspects if asp["aspect"] in detected_aspect_names
+        ]
         
         # Prepare output
         processed_data.append({
@@ -319,9 +321,8 @@ def process_data(input_file, output_dir, aspect_keywords_file, filter_noaspects=
             "aspects": [{
                 "aspect": asp["aspect"],
                 "sentiment_id": sentiment_to_id[asp["sentiment_str"]]
-            } for asp in rated_aspects],
-            "extracted_spans": aspect_spans,
-            "existing_aspects": existing_aspects,
+            } for asp in filtered_rated_aspects],
+            "extracted_spans": aspect_spans_for_output
         })
     
     logger.info(f"Processed {total_rows} rows")
@@ -376,11 +377,11 @@ if __name__ == "__main__":
                         help='Path to input CSV file')
     parser.add_argument('--output_dir', default='data/filtered_data_xlm',
                         help='Directory to save processed data')
-    parser.add_argument('--aspect_keywords', default='data/aspect_keywords_map.json',
+    parser.add_argument('--aspect_keywords', default='data/aspect_keywords_lemma.json',
                         help='Path to aspect keywords mapping')
     parser.add_argument('--filter_noaspects', action='store_true', 
                         help='Filter out examples without detected aspect terms')
-    parser.add_argument('--use_reviews_column', action='store_true', default=True,
+    parser.add_argument('--use_reviews_column', action='store_true', default=False,
                         help='Use the "reviews" column instead of "text_proc" for text content')
     
     args = parser.parse_args()

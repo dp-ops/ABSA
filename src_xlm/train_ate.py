@@ -254,7 +254,8 @@ def main():
         batch_size=args.batch_size,
         use_crf=args.use_crf,
         patience=args.patience,
-        gradient_clipping=args.gradient_clipping
+        gradient_clipping=args.gradient_clipping,
+        lr_reduction_patience_ate=args.patience
     )
     
     # Log final metrics
