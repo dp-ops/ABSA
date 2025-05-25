@@ -7,13 +7,13 @@ import os
 import torch
 import numpy as np
 import logging
-import matplotlib.pyplot as plt
-import re
+# import matplotlib.pyplot as plt
+# import re
 from transformers import AutoModelForTokenClassification, AutoModelForSequenceClassification
 from transformers import AutoTokenizer, Trainer, TrainingArguments, DataCollatorForTokenClassification
 from transformers import pipeline
 from transformers import TrainerCallback
-from datasets import Dataset, DatasetDict
+from datasets import Dataset #, DatasetDict
 from seqeval.metrics import classification_report
 from sklearn.metrics import classification_report as cls_report
 

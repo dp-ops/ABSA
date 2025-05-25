@@ -48,7 +48,7 @@ NON_ASPECT_WORDS = {
 }
 
 # Load aspect keywords from JSON file
-def load_aspect_keywords(file_path="data/aspect_keywords_map.json"):
+def load_aspect_keywords(file_path="data/aspect_keywords_lemma.json"):
     try:
         with open(file_path, 'r', encoding='utf-8') as f:
             aspect_keywords_map = json.load(f)
@@ -211,8 +211,8 @@ def main():
     tokenizer = initialize_tokenizer()
     
     # Set paths
-    train_dataset_path = "data/filtered_data/processed_aspect_data_train.json"
-    val_dataset_path = "data/filtered_data/processed_aspect_data_val.json"
+    train_dataset_path = "data/filtered_data_lemma/processed_aspect_data_train.json"
+    val_dataset_path = "data/filtered_data_lemma/processed_aspect_data_val.json"
     
     # Check if we should train the ATE model
     train_ate = not args.train_asc_only
@@ -246,7 +246,7 @@ def main():
             
         # Save the preprocessed data back to a temporary file if needed
         if args.include_adjectives:
-            temp_train_path = "data/filtered_data/processed_aspect_data_train_filtered.json"
+            temp_train_path = "data/filtered_data_lemma/processed_aspect_data_train_filtered.json"
             with open(temp_train_path, 'w', encoding='utf-8') as f:
                 for item in train_data:
                     f.write(json.dumps(item) + '\n')

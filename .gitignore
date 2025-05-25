@@ -3,8 +3,6 @@ skroutzscraper/skroutzscraper/spiders/__pycache__/
 .scrapy/
 src/__pycache__/
 saved_models/
-saved_models/aspect_sentiment_model_test/
-saved_models/aspect_extractor_model_test/
 results/
 saved_models_r/
 models/
@@ -25,3 +23,4 @@ src_xlm/test_class_weights.py
 src_xlm/train_r.py
 src_xlm/metrics_r.py
 README_XLM.md
+src_xlm/data_prep_xlm_old.py
