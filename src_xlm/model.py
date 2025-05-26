@@ -6,10 +6,13 @@ import numpy as np
 import logging
 import re
 import unicodedata
+import torch.serialization
+import collections
 from transformers import AutoModelForTokenClassification, AutoModelForSequenceClassification
 from transformers import AutoTokenizer, Trainer, TrainingArguments, DataCollatorForTokenClassification
 from transformers import pipeline
 from transformers import TrainerCallback, EarlyStoppingCallback
+from transformers import get_scheduler
 from datasets import Dataset
 from seqeval.metrics import classification_report
 from sklearn.metrics import classification_report as cls_report
@@ -363,7 +366,7 @@ class XLMRobertaForTokenClassificationCRF(torch.nn.Module):
     """
     XLM-RoBERTa model with token classification head and CRF layer
     """
-    def __init__(self, model_name, num_labels, crf_dropout=0.1):
+    def __init__(self, model_name, num_labels, crf_dropout=0.3):
         super(XLMRobertaForTokenClassificationCRF, self).__init__()
         
         # Load base model
@@ -428,7 +431,7 @@ class XLMRobertaForTokenClassificationCRF(torch.nn.Module):
 
 # ================ DATASET LOADING FUNCTIONS ================
 
-def load_aspect_keywords(file_path="data/aspect_keywords_map.json"):
+def load_aspect_keywords(file_path="data/aspect_keywords_lemma.json"):   #changed from map to lemma
     """Load aspect keywords map to help the model focus on relevant terms"""
     try:
         with open(file_path, 'r', encoding='utf-8') as f:
@@ -949,15 +952,15 @@ def train_aspect_extraction(train_dataset, val_dataset, tokenizer, num_epochs=NU
     
     # Configure appropriate training arguments
     train_args_dict = {
-        "output_dir": checkpoints_subdir_path, # Checkpoints saved here
-        "logging_dir": logs_subdir_path,       # Logs saved here
+        "output_dir": checkpoints_subdir_path,
+        "logging_dir": logs_subdir_path,
         "logging_steps": 60,
         "num_train_epochs": num_epochs,
         "per_device_train_batch_size": batch_size,
         "per_device_eval_batch_size": batch_size,
         "weight_decay": 0.01,
-        "save_steps": 120, # Consider making this configurable
-        "eval_steps": 120, # Consider making this configurable
+        "save_steps": 100,
+        "eval_steps": 100,
         "save_total_limit": 3,
         "metric_for_best_model": "f1",
         "eval_strategy": "steps",
@@ -974,7 +977,6 @@ def train_aspect_extraction(train_dataset, val_dataset, tokenizer, num_epochs=NU
     optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate)
     logger.info(f"Using AdamW optimizer with learning rate: {learning_rate}")
     
-    from transformers import get_scheduler
     try:
         num_update_steps_per_epoch = len(train_dataset) // batch_size
         if num_update_steps_per_epoch == 0 : # Handle small datasets
@@ -1008,7 +1010,7 @@ def train_aspect_extraction(train_dataset, val_dataset, tokenizer, num_epochs=NU
         scheduler=scheduler_ref,
         metric_name="eval_f1",
         patience=lr_reduction_patience_ate,
-        factor=0.75,
+        factor=0.6,
         min_lr=1e-7,
         stopping_patience=early_stop_patience_ate
     )
@@ -1021,6 +1023,8 @@ def train_aspect_extraction(train_dataset, val_dataset, tokenizer, num_epochs=NU
     )
     
     trainer_class = CRFTrainer if use_crf else Trainer
+    
+    logger.info(f"Using gradient clipping: {gradient_clipping}")
     
     trainer = trainer_class(
         model=model,
@@ -1036,7 +1040,20 @@ def train_aspect_extraction(train_dataset, val_dataset, tokenizer, num_epochs=NU
     logger.info("Starting ATE model training run...")
     start_time = time.time()
     # Pass the specific checkpoint path (or None) to trainer.train()
-    train_result = trainer.train(resume_from_checkpoint=actual_checkpoint_to_resume)
+    # Comprehensive list of safe globals for checkpoint loading
+    safe_globals_list = [
+        getattr, 
+        CustomLearningRateSchedulerCallback, 
+        torch.optim.AdamW,
+        collections.defaultdict,
+        collections.OrderedDict,
+        torch.optim.lr_scheduler.LinearLR,
+        get_scheduler,
+        EarlyStoppingCallback,
+        TrainerCallback
+    ]
+    with torch.serialization.safe_globals(safe_globals_list):
+        train_result = trainer.train(resume_from_checkpoint=actual_checkpoint_to_resume)
     end_time = time.time()
     
     training_time = end_time - start_time
@@ -1625,21 +1642,21 @@ def train_aspect_sentiment(
     logger.info(f"Initializing standard XLM-RoBERTa for sequence classification (model structure).")
     from transformers import XLMRobertaConfig
     config = XLMRobertaConfig.from_pretrained(MODEL_NAME, num_labels=SENTIMENT_NUM_LABELS)
-    config.hidden_dropout_prob = 0.15 # ASC specific dropout - Aligned to ATE's non-CRF
-    config.attention_probs_dropout_prob = 0.15 # ASC specific dropout - Aligned to ATE's non-CRF
+    config.hidden_dropout_prob = 0.3 # ASC specific dropout - Aligned to ATE's non-CRF
+    config.attention_probs_dropout_prob = 0.3 # ASC specific dropout - Aligned to ATE's non-CRF
     model = AutoModelForSequenceClassification.from_pretrained(MODEL_NAME, config=config)
         
     # Configure appropriate training arguments
     train_args_dict = {
-        "output_dir": checkpoints_subdir_path, # Checkpoints saved here
-        "logging_dir": logs_subdir_path,       # Logs saved here
-        "logging_steps": 60, # Aligned with ATE
+        "output_dir": checkpoints_subdir_path,
+        "logging_dir": logs_subdir_path,
+        "logging_steps": 60,
         "num_train_epochs": num_epochs,
         "per_device_train_batch_size": batch_size,
         "per_device_eval_batch_size": batch_size,
         "weight_decay": 0.01,
-        "save_steps": 120, # Aligned with ATE
-        "eval_steps": 120, # Aligned with ATE
+        "save_steps": 120,
+        "eval_steps": 120,
         "save_total_limit": 3,
         "metric_for_best_model": "macro_f1",
         "eval_strategy": "steps",
@@ -1650,15 +1667,11 @@ def train_aspect_sentiment(
         "max_grad_norm": gradient_clipping
     }
     
-    # Note: The original code had "resume_from_checkpoint": True in train_args if CLI flag was set.
-    # This is handled by passing actual_checkpoint_to_resume to trainer.train() instead.
-    
     training_args = TrainingArguments(**train_args_dict)
     
-    optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate) # Aligned with ATE's optimizer
+    optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate)
     logger.info(f"Using AdamW optimizer with learning rate: {learning_rate}")
     
-    from transformers import get_scheduler
     try:
         num_update_steps_per_epoch = len(train_dataset) // batch_size
         if num_update_steps_per_epoch == 0 : # Handle small datasets
@@ -1685,7 +1698,7 @@ def train_aspect_sentiment(
 
     if lr_reduction_patience_asc is None:
         lr_reduction_patience_asc = max(2, patience // 2)
-    early_stop_patience_asc = 3 * patience # Aligned with ATE logic
+    early_stop_patience_asc = 3 * patience
 
     custom_lr_scheduler_callback = CustomLearningRateSchedulerCallback(
         optimizer=optimizer_ref,
@@ -1767,7 +1780,20 @@ def train_aspect_sentiment(
     logger.info("Starting ASC model training run...")
     start_time = time.time()
     # Pass the specific checkpoint path (or None) to trainer.train()
-    train_result = trainer.train(resume_from_checkpoint=actual_checkpoint_to_resume)
+    # Comprehensive list of safe globals for checkpoint loading
+    safe_globals_list = [
+        getattr, 
+        CustomLearningRateSchedulerCallback, 
+        torch.optim.AdamW,
+        collections.defaultdict,
+        collections.OrderedDict,
+        torch.optim.lr_scheduler.LinearLR,
+        get_scheduler,
+        EarlyStoppingCallback,
+        TrainerCallback
+    ]
+    with torch.serialization.safe_globals(safe_globals_list):
+        train_result = trainer.train(resume_from_checkpoint=actual_checkpoint_to_resume)
     end_time = time.time()
     
     training_time = end_time - start_time
@@ -1780,7 +1806,7 @@ def train_aspect_sentiment(
         json.dump(metrics, f, indent=4)
     
     logger.info(f"Saving final model (best model from training) to {output_dir}")
-    model.save_pretrained(output_dir) # Standard save for sequence classification model
+    model.save_pretrained(output_dir)
     tokenizer.save_pretrained(output_dir)
     logger.info(f"Model and tokenizer saved to {output_dir}")
     

@@ -29,7 +29,7 @@ logger = logging.getLogger(__name__)
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Test XLM-RoBERTa ATE and ASC models, and ABSA pipeline")
-    parser.add_argument('--test_file', default='data/filtered_review_data_xlm/processed_aspect_data_test.json',
+    parser.add_argument('--test_file', default='data/filtered_data_lemma/processed_aspect_data_test.json',
                         help='Path to test data file (must contain text, bio_labels, and aspects with sentiment_id)')
     parser.add_argument('--ate_model_path', default=ASPECT_MODEL_PATH, # Renamed for clarity
                         help='Path to trained ATE model')
