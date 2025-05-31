@@ -24,3 +24,8 @@ src_xlm/train_r.py
 src_xlm/metrics_r.py
 README_XLM.md
 src_xlm/data_prep_xlm_old.py
+src_final/__pycache__
+calculate_sentiment_distribution.py
+src_xlm/
+results_test
+.gitignore
