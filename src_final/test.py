@@ -28,7 +28,7 @@ logger = logging.getLogger(__name__)
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Test Greek BERT ATC and ASC models, and ABSA pipeline")
-    parser.add_argument('--test_file', default='data/f_data_bert/test_data.json',
+    parser.add_argument('--test_file', default='data/f_data_bert_lemma/test_data.json',
                         help='Path to test data file (must contain text_processed and aspects_present)')
     parser.add_argument('--atc_model_path', default=ATC_MODEL_PATH,
                         help='Path to trained ATC model')

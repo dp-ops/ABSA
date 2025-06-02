@@ -1,0 +1,10 @@
+metric,value
+eval_loss,0.4567733705043793
+eval_accuracy,0.8151815181518152
+eval_macro_precision,0.7057439457931861
+eval_macro_recall,0.7044692479101675
+eval_macro_f1,0.7044319600585144
+eval_neg_f1,0.7184466019417476
+eval_neu_f1,0.4925
+eval_pos_f1,0.9023492782337956
+epoch,10.0

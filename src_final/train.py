@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 # Calculated from actual data distribution (10.47% neg, 16.41% neu, 73.13% pos)
 # Using inverse frequency weighting: total_samples / (num_classes * class_count)
 # Negative: 20444/(3*2140) ≈ 3.18, Neutral: 20444/(3*3354) ≈ 2.03, Positive: 20444/(3*14950) ≈ 0.46
-ASC_CLASS_WEIGHTS_VALUES = [2.0, 3.0, 1]  #[6.0, 4.0, 0.5]
+ASC_CLASS_WEIGHTS_VALUES = [2.0, 2.0, 1]  #[6.0, 4.0, 0.5]
 
 def parse_args():
     parser = argparse.ArgumentParser(description='Train Aspect Term Classification (ATC) or Aspect Sentiment Classification (ASC) model.')
