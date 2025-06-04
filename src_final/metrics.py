@@ -209,77 +209,161 @@ def main():
     # Process Aspect Classification model metrics
     print("\nProcessing Greek BERT Aspect Classification (ATC) model metrics...")
     atc_trainer_state = load_trainer_state(args.atc_model_dir)
+    atc_log_metrics = None 
     if atc_trainer_state and 'log_history' in atc_trainer_state:
-        atc_metrics = extract_metrics_from_log_history(atc_trainer_state['log_history'])
-        plot_training_metrics(atc_metrics, 'Aspect_Classification', args.output_dir)
+        atc_log_metrics = extract_metrics_from_log_history(atc_trainer_state['log_history'])
+        plot_training_metrics(atc_log_metrics, 'Aspect_Classification', args.output_dir)
         # Save metrics to CSV
-        csv_files = save_metrics_to_csv(atc_metrics, 'Aspect_Classification', args.output_dir)
-        print(f"Aspect Classification model metrics plotted to {args.output_dir} and saved as CSV")
+        save_metrics_to_csv(atc_log_metrics, 'Aspect_Classification', args.output_dir)
+        print(f"Aspect Classification model metrics from log history plotted to {args.output_dir} and saved as CSV")
+
+        # Print latest F1 scores from ATC log history (validation)
+        if atc_log_metrics.get('eval_metrics'):
+            print("\n  Latest F1 Scores from ATC log history (Validation Set during training):")
+            found_f1_log_atc = False
+            for key, values in atc_log_metrics['eval_metrics'].items():
+                if "f1" in key.lower() and values:
+                    latest_value = values[-1]
+                    if latest_value is not None: # Ensure value exists
+                        if isinstance(latest_value, (int, float)):
+                            print(f"    {key}: {latest_value:.4f}")
+                        else:
+                            print(f"    {key}: {latest_value}")
+                        found_f1_log_atc = True
+            if not found_f1_log_atc:
+                print("    No F1 scores found in ATC log history's evaluation steps.")
     else:
-        print("No metrics found for Aspect Classification model")
+        print("No log history metrics found for Aspect Classification model.")
     
     # Process Aspect Sentiment model metrics
     print("\nProcessing Greek BERT Aspect Sentiment Classification (ASC) model metrics...")
     asc_trainer_state = load_trainer_state(args.asc_model_dir)
+    asc_log_metrics = None
     if asc_trainer_state and 'log_history' in asc_trainer_state:
-        asc_metrics = extract_metrics_from_log_history(asc_trainer_state['log_history'])
-        plot_training_metrics(asc_metrics, 'Aspect_Sentiment', args.output_dir)
+        asc_log_metrics = extract_metrics_from_log_history(asc_trainer_state['log_history'])
+        plot_training_metrics(asc_log_metrics, 'Aspect_Sentiment', args.output_dir)
         # Save metrics to CSV
-        csv_files = save_metrics_to_csv(asc_metrics, 'Aspect_Sentiment', args.output_dir)
-        print(f"Aspect Sentiment model metrics plotted to {args.output_dir} and saved as CSV")
+        save_metrics_to_csv(asc_log_metrics, 'Aspect_Sentiment', args.output_dir)
+        print(f"Aspect Sentiment model metrics from log history plotted to {args.output_dir} and saved as CSV")
+
+        # Print latest F1 scores from ASC log history (validation)
+        if asc_log_metrics.get('eval_metrics'):
+            print("\n  Latest F1 Scores from ASC log history (Validation Set during training):")
+            found_f1_log_asc = False
+            for key, values in asc_log_metrics['eval_metrics'].items():
+                if "f1" in key.lower() and values:
+                    latest_value = values[-1]
+                    if latest_value is not None: # Ensure value exists
+                        if isinstance(latest_value, (int, float)):
+                            print(f"    {key}: {latest_value:.4f}")
+                        else:
+                            print(f"    {key}: {latest_value}")
+                        found_f1_log_asc = True
+            if not found_f1_log_asc:
+                print("    No F1 scores found in ASC log history's evaluation steps.")
     else:
-        print("No metrics found for Aspect Sentiment model")
+        print("No log history metrics found for Aspect Sentiment model.")
     
-    # Load and plot final evaluation metrics if available
-    print("\nFinal evaluation metrics:")
+    # Load and print final evaluation metrics if available
+    print("\nFinal evaluation metrics (from evaluation_metrics.json):")
     
     # ATC final metrics
     atc_eval_path = os.path.join(args.atc_model_dir, 'evaluation_metrics.json')
     if os.path.exists(atc_eval_path):
         try:
             with open(atc_eval_path, 'r') as f:
-                atc_metrics = json.load(f)
-                print("\nGreek BERT Aspect Classification (ATC) Final Metrics:")
-                for key, value in atc_metrics.items():
-                    if not key.startswith('eval_runtime') and not key.endswith('_per_second'):
-                        print(f"  {key}: {value:.4f}" if isinstance(value, (int, float)) else f"  {key}: {value}")
+                atc_final_eval_metrics = json.load(f)
+                print("\n  Greek BERT Aspect Classification (ATC) Final Metrics:")
+                f1_scores_atc_final = {}
+                other_metrics_atc_final = {}
+                for key, value in atc_final_eval_metrics.items():
+                    if key.startswith('eval_runtime') or key.endswith('_per_second') or key == 'epoch':
+                        continue 
+                    
+                    if "f1" in key.lower():
+                        f1_scores_atc_final[key] = value
+                    else:
+                        other_metrics_atc_final[key] = value
                 
-                # Save final metrics to CSV
-                final_csv_path = os.path.join(args.output_dir, 'ATC_final_metrics.csv')
-                with open(final_csv_path, 'w', newline='') as csvfile:
+                if f1_scores_atc_final:
+                    print("    F1 Scores (from evaluation_metrics.json - Validation/Test and Training if present):")
+                    for key, value in f1_scores_atc_final.items():
+                        if isinstance(value, (int, float)):
+                            print(f"      {key}: {value:.4f}")
+                        else:
+                            print(f"      {key}: {value}")
+                
+                if other_metrics_atc_final:
+                    print("    Other Metrics (from evaluation_metrics.json):")
+                    for key, value in other_metrics_atc_final.items():
+                        if isinstance(value, (int, float)):
+                            print(f"      {key}: {value:.4f}")
+                        else:
+                            print(f"      {key}: {value}")
+                
+                # Save final metrics to CSV (existing code part)
+                final_csv_path_atc = os.path.join(args.output_dir, 'ATC_final_metrics.csv')
+                with open(final_csv_path_atc, 'w', newline='') as csvfile:
                     fieldnames = ['metric', 'value']
                     writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
                     writer.writeheader()
-                    for key, value in atc_metrics.items():
-                        if not key.startswith('eval_runtime') and not key.endswith('_per_second'):
+                    for key, value in atc_final_eval_metrics.items():
+                        if not (key.startswith('eval_runtime') or key.endswith('_per_second')):
                             writer.writerow({'metric': key, 'value': value})
-                print(f"Final ATC metrics saved to {final_csv_path}")
+                print(f"Final ATC metrics also saved to {final_csv_path_atc}")
         except Exception as e:
-            print(f"Error loading ATC evaluation metrics: {e}")
+            print(f"Error loading or processing ATC evaluation metrics from {atc_eval_path}: {e}")
+    else:
+        print(f"No evaluation_metrics.json found for ATC at {atc_eval_path}")
     
     # ASC final metrics
     asc_eval_path = os.path.join(args.asc_model_dir, 'evaluation_metrics.json')
     if os.path.exists(asc_eval_path):
         try:
             with open(asc_eval_path, 'r') as f:
-                asc_metrics = json.load(f)
-                print("\nGreek BERT Aspect Sentiment Classification (ASC) Final Metrics:")
-                for key, value in asc_metrics.items():
-                    if not key.startswith('eval_runtime') and not key.endswith('_per_second'):
-                        print(f"  {key}: {value:.4f}" if isinstance(value, (int, float)) else f"  {key}: {value}")
+                asc_final_eval_metrics = json.load(f)
+                print("\n  Greek BERT Aspect Sentiment Classification (ASC) Final Metrics:")
+                f1_scores_asc_final = {}
+                other_metrics_asc_final = {}
+                for key, value in asc_final_eval_metrics.items():
+                    if key.startswith('eval_runtime') or key.endswith('_per_second') or key == 'epoch':
+                        continue
+                    
+                    if "f1" in key.lower():
+                        f1_scores_asc_final[key] = value
+                    else:
+                        other_metrics_asc_final[key] = value
+
+                if f1_scores_asc_final:
+                    print("    F1 Scores (from evaluation_metrics.json - Validation/Test and Training if present):")
+                    for key, value in f1_scores_asc_final.items():
+                        if isinstance(value, (int, float)):
+                            print(f"      {key}: {value:.4f}")
+                        else:
+                            print(f"      {key}: {value}")
+
+                if other_metrics_asc_final:
+                    print("    Other Metrics (from evaluation_metrics.json):")
+                    for key, value in other_metrics_asc_final.items():
+                        if isinstance(value, (int, float)):
+                            print(f"      {key}: {value:.4f}")
+                        else:
+                            print(f"      {key}: {value}")
                 
-                # Save final metrics to CSV
-                final_csv_path = os.path.join(args.output_dir, 'ASC_final_metrics.csv')
-                with open(final_csv_path, 'w', newline='') as csvfile:
+                # Save final metrics to CSV (existing code part)
+                final_csv_path_asc = os.path.join(args.output_dir, 'ASC_final_metrics.csv')
+                with open(final_csv_path_asc, 'w', newline='') as csvfile:
                     fieldnames = ['metric', 'value']
                     writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
                     writer.writeheader()
-                    for key, value in asc_metrics.items():
-                        if not key.startswith('eval_runtime') and not key.endswith('_per_second'):
+                    for key, value in asc_final_eval_metrics.items():
+                        if not (key.startswith('eval_runtime') or key.endswith('_per_second')):
                             writer.writerow({'metric': key, 'value': value})
-                print(f"Final ASC metrics saved to {final_csv_path}")
+                print(f"Final ASC metrics also saved to {final_csv_path_asc}")
         except Exception as e:
-            print(f"Error loading ASC evaluation metrics: {e}")
+            print(f"Error loading or processing ASC evaluation metrics from {asc_eval_path}: {e}")
+    else:
+        print(f"No evaluation_metrics.json found for ASC at {asc_eval_path}")
     
     print(f"\nAll Greek BERT model plots saved to {args.output_dir}")
     print(f"All Greek BERT model metrics saved as CSV files in {args.output_dir}")

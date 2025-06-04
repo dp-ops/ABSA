@@ -1,0 +1,34 @@
+
+Exactly! You've understood it perfectly. Let me break down the three testing phases:
+
+## 1. **ATC Evaluation** (Aspect Term Classification - Individual Model Test)
+- **Input**: Test data with ground truth aspects and sentiments
+- **Process**: For each text in test data → ATC model predicts which aspects are present
+- **Evaluation**: Compare predicted aspects vs. ground truth aspects
+- **Metrics**: Hamming Loss, Jaccard Score, per-aspect precision/recall
+
+## 2. **ASC Evaluation** (Aspect Sentiment Classification - Individual Model Test)  
+- **Input**: Same test data with known aspect-sentiment pairs
+- **Process**: For each (text, ground_truth_aspect) pair → ASC model predicts sentiment
+- **Evaluation**: Compare predicted sentiments vs. ground truth sentiments  
+- **Metrics**: Precision, Recall, F1-score for negative/neutral/positive sentiments
+
+## 3. **ABSA Pipeline Testing** (Complete End-to-End Flow)
+- **Input**: Raw text (no ground truth needed - simulates real-world usage)
+- **Process**: 
+  1. **Text → ATC Model** → Detects which aspects are present (e.g., "Φωτογραφίες", "Μπαταρία") 
+  2. **For each detected aspect → ASC Model** → Predicts sentiment for that aspect
+- **Output**: List of (aspect, sentiment) pairs with confidence scores
+- **Example Output**: 
+  Detected 4 aspects:
+      - Aspect: 'Φωτογραφίες' (Score: 0.8520) → Sentiment: positive (Score: 0.9123)
+      - Aspect: 'Μπαταρία' (Score: 0.7341) → Sentiment: neutral (Score: 0.6789)
+  ```
+  Detected 4 aspects:
+    - Aspect: 'Φωτογραφίες' (Score: 0.8520) → Sentiment: positive (Score: 0.9123)
+    - Aspect: 'Μπαταρία' (Score: 0.7341) → Sentiment: neutral (Score: 0.6789)
+  ```
+
+The first two test individual model performance against ground truth, while the pipeline test shows how they work together in practice - which is what users would actually experience when using the system on new, unlabeled text.
+
+Would you like me to fix the remaining ATC permission issue and the pipeline f-string error so you can see the complete flow working?

@@ -237,7 +237,7 @@ def process_data(input_file, output_dir, aspect_keywords_file, filter_noaspects=
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Process data for aspect-based sentiment analysis")
-    parser.add_argument('--input_file', default='data/test_2731_reviews.csv',
+    parser.add_argument('--input_file', default='data/reviews_NoDuplicates_TrainTest.csv',
                         help='Path to input CSV file')
     parser.add_argument('--output_dir', default='data/filtered_data',
                         help='Directory to save processed data')

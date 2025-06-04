@@ -29,3 +29,4 @@ calculate_sentiment_distribution.py
 src_xlm/
 results_test
 .gitignore
+aspect_counter.py

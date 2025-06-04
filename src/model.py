@@ -84,7 +84,7 @@ def convert_aligned_labels_to_ids(aligned_labels, label_map):
 
 # Constants
 MODEL_NAME = "nlpaueb/bert-base-greek-uncased-v1"
-SAVED_MODELS_DIR = "saved_models"
+SAVED_MODELS_DIR = "models/saved_models"
 NUM_EPOCHS = 3
 BATCH_SIZE = 16
 LEARNING_RATE = 2e-5

@@ -211,8 +211,8 @@ def main():
     tokenizer = initialize_tokenizer()
     
     # Set paths
-    train_dataset_path = "data/filtered_data_lemma/processed_aspect_data_train.json"
-    val_dataset_path = "data/filtered_data_lemma/processed_aspect_data_val.json"
+    train_dataset_path = "data/filtered_data/processed_aspect_data_train.json"
+    val_dataset_path = "data/filtered_data/processed_aspect_data_val.json"
     
     # Check if we should train the ATE model
     train_ate = not args.train_asc_only
@@ -244,9 +244,9 @@ def main():
             logger.info("Filtering adjectives in training data...")
             train_data = preprocess_training_data(train_data, tokenizer, filter_adjectives=True)
             
-        # Save the preprocessed data back to a temporary file if needed
-        if args.include_adjectives:
-            temp_train_path = "data/filtered_data_lemma/processed_aspect_data_train_filtered.json"
+            # Save the preprocessed data back to a temporary file since we modified it
+            temp_train_path = "data/filtered_data/processed_aspect_data_train_filtered.json"
+            os.makedirs(os.path.dirname(temp_train_path), exist_ok=True)
             with open(temp_train_path, 'w', encoding='utf-8') as f:
                 for item in train_data:
                     f.write(json.dumps(item) + '\n')
