@@ -1,19 +1,33 @@
 # Aspect-Based Sentiment Analysis for Greek
 
-This project implements an Aspect-Based Sentiment Analysis (ABSA) system for Greek using BERT. The system consists of two main components: Aspect Term Extraction (ATE) and Aspect Sentiment Classification (ASC).
+# Details
+The project was made for a end of the year project in lecture Advanced Machine Learning, at masters Artificial Inteligence.  
+The project consists of code for scrapping the famous retail site Skroutz.gr and spacifically for the smartphone products. 
+The scapping is done using pythons scrapy library and the following command need to run in order to scrape slroutz. 
+1) For scrapping the urls of whome the comments afterwards are scrapped:
+```
+   scrapy runspider skroutzscraper\skroutzscraper\spiders\skroutz_urls_spider.py -o output.csv
+```
+2) For scapping the comments from the urls collected:
+```
+   scrapy runspider skroutzscraper\skroutzscraper\spiders\skroutz_comment_spider.py -o dirtyreview.csv
+```
+Finally, there are two outputs from those runs.  One named output.csv which is a .csv file containing all the different urls of the products. And one name dirtyreview.csv which is the comments scrapped alongside with their sentiments and aspects. 
+
+This project implements an Aspect-Based Sentiment Analysis (ABSA) system for Greek using BERT. The project contains two different approaches for aspect analysis:
+- **Aspect Term Extraction (ATE)** approach in `/src`
+- **Aspect Term Classification (ATC)** approach in `/src_final`
 
 ## Table of Contents
 1. [Scraping Skroutz Comments](#scraping-skroutz-comments)
 2. [Project Structure](#project-structure)
 3. [Setup](#setup)
-4. [Training the Models](#training-the-models)
-5. [Running Inference](#running-inference)
-6. [How It Works](#how-it-works)
+4. [Approach 1: Aspect Term Extraction (src)](#approach-1-aspect-term-extraction-src)
+5. [Approach 2: Aspect Term Classification (src_final)](#approach-2-aspect-term-classification-src_final)
+6. [Data Structure](#data-structure)
 7. [Model Architecture](#model-architecture)
 8. [Evaluation Metrics](#evaluation-metrics)
-9. [Visualizing Metrics](#visualizing-metrics)
-10. [Testing the Models](#testing-the-models)
-11. [Improvements](#improvements)
+9. [Testing the Models](#testing-the-models)
 
 ## Scraping Skroutz Comments
 
@@ -33,40 +47,41 @@ The scraping is done using the Scrapy library, which uses spiders to scrape spec
 
 ```
 ├── data/
-│   └── filtered_data/
-│       ├── processed_aspect_data_train.json
-│       ├── processed_aspect_data_val.json
-│       └── processed_aspect_data_test.json
-├── data/
-│   └── filtered_review_data_r/
-│       ├── processed_aspect_data_train.json
-│       ├── processed_aspect_data_val.json
-│       └── processed_aspect_data_test.json
-├── saved_models/
-│   ├── aspect_extractor_model/
-│   └── aspect_sentiment_model/
-├── results/
-│   ├── ate_test_metrics.json
-│   ├── asc_test_metrics.json
-│   └── pipeline_test_results.json
-├── metrics_plots/
-│   ├── Aspect_Extraction_training_loss.png
-│   └── Aspect_Sentiment_f1_scores.png
-├── src/
-│   ├── model.py
-│   ├── train.py
-│   ├── inference.py
-│   ├── metrics.py
-│   └── test.py
-├── src_roB/
-│   ├── model_r.py
-│   ├── train_r.py
-│   ├── data_prep_r.py
-│   └── inference_r.py
+│   ├── filtered_data/                    # ATE approach data (BIO tagging format)
+│   │   ├── processed_aspect_data_train.json
+│   │   ├── processed_aspect_data_val.json
+│   │   └── processed_aspect_data_test.json
+│   ├── f_data_bert_lemma/               # ATC approach data (lemmatized)
+│   │   ├── train_data.json
+│   │   ├── val_data.json
+│   │   └── test_data.json
+│   ├── f_data_bert_lemma_augmented/     # Augmented data for ATC
+│   ├── f_data_bert/                     # ATC approach data (standard)
+│   ├── f_data_bert_augmented/           # Augmented data for ATC
+│   ├── aspect_keywords_map.json         # Aspect keyword mappings
+│   ├── aspect_keywords_lemma.json       # Lemmatized aspect keywords
+│   └── [various CSV files]             # Raw and processed review data
+├── models/
+│   ├── saved_models/                    # ATE models (src approach)
+│   │   ├── aspect_extractor_model/
+│   │   └── aspect_sentiment_model/
+│   └── saved_models_final/              # ATC models (src_final approach)
+│       ├── aspect_classification_model/
+│       └── aspect_sentiment_model/
+├── src/                                 # Aspect Term Extraction approach
+│   ├── model.py                         # ATE model definitions and training functions
+│   ├── train.py                         # Training script for ATE
+│   ├── inference.py                     # Inference script for ATE
+│   ├── test.py                          # Testing script for ATE
+│   ├── metrics.py                       # Metrics calculation and visualization
+│   └── data_prep.py                     # Data preprocessing for ATE
+├── src_final/                           # Aspect Term Classification approach
+│   ├── model.py                         # ATC model definitions and training functions
+│   ├── train.py                         # Training script for ATC
+│   ├── test.py                          # Testing script for ATC
+│   ├── metrics.py                       # Metrics calculation for ATC
+│   └── data_prep.py                     # Data preprocessing for ATC
 ```
-filtered_data: test_proc from the .csv . test_proc: comments are spell checked, lemmatizationed, function preprocessed (algoriths of bro) for the greekBERT fine tuning and tokens.
-filtered_data_r: test_proc from the .csv . test_proc: comments are spell checked, lemmatizationed, function preprocessed (algoriths of bro) for the roBERTa fine tuning and tokens.
-filtered_review_data_r: reviews from the .csv . reviews: comments are just spell checked for the greekBERT fine tuning and tokens.
 
 ## Setup
 
@@ -76,33 +91,33 @@ filtered_review_data_r: reviews from the .csv . reviews: comments are just spell
    conda env create -f environment.yml
    conda activate absa
    ```
-3. Prepare the data:
-   ```bash
-   python src/data_prep.py --input_path data/raw_data/raw_data.json --output_path data/processed_data/processed_data.json
-   ```
 
-## Training the Models
+## Approach 1: Aspect Term Extraction (src)
 
-To train both the aspect extraction and sentiment classification models, use the following command:
+This approach uses **BIO tagging** to extract aspect terms from text and then classifies sentiment for those extracted aspects.
+
+### Model Components:
+- **ATE Model**: BERT with token classification head for BIO tagging (O, B-ASP, I-ASP)
+- **ASC Model**: BERT with sequence classification head for sentiment analysis
+
+### Training the ATE Models
 
 ```bash
 python src/train.py [OPTIONS]
 ```
 
-### Training Arguments
-
-You can customize the training process with the following arguments:
+#### Training Arguments
 
 - `--epochs`: Number of training epochs (default: 3)
 - `--resume`: Resume training from existing checkpoints
 - `--train_ate_only`: Train only the Aspect Term Extraction model
 - `--train_asc_only`: Train only the Aspect Sentiment Classification model
 - `--learning_rate`: Learning rate for training (default: 3e-5)
-- `--batch_size`: Batch size for training (default: 32)
+- `--batch_size`: Batch size for training (default: 16)
 - `--augment_data`: Use data augmentation techniques to improve training
 - `--include_adjectives`: Include adjectives in training (default: False)
 
-### Examples
+#### Examples
 
 1. **Resume training from checkpoints:**
    ```bash
@@ -112,28 +127,28 @@ You can customize the training process with the following arguments:
    ```bash
    python src/train.py --train_ate_only --epochs 5
    ```
-3. **Train only the Aspect Sentiment model with more epochs:**
+3. **Train only the Aspect Sentiment model:**
    ```bash
    python src/train.py --train_asc_only --epochs 10
    ```
 
-## Running Inference
-
-Once trained, you can use the models for inference:
+### Running ATE Inference
 
 ```bash
 python src/inference.py --text "Your Greek text here" [OPTIONS]
 ```
 
-### Inference Arguments
+#### Inference Arguments
 
 - `--text`: Input text for analysis (required)
-- `--aspect_model`: Path to the aspect extraction model (default: `saved_models/aspect_extractor_model`)
-- `--sentiment_model`: Path to the sentiment classification model (default: `saved_models/aspect_sentiment_model`)
+- `--aspect_model`: Path to the aspect extraction model (default: `models/saved_models/aspect_extractor_model`)
+- `--sentiment_model`: Path to the sentiment classification model (default: `models/saved_models/aspect_sentiment_model`)
 - `--debug_ate`: Debug the ATE predictions
 - `--confidence`: Confidence threshold for aspect extraction (default: 0.05)
+- `--file`: Analyze examples from a file
+- `--num_examples`: Number of examples to process from file
 
-### Examples
+#### Examples
 
 1. **Analyze a single text:**
    ```bash
@@ -141,145 +156,153 @@ python src/inference.py --text "Your Greek text here" [OPTIONS]
    ```
 2. **Analyze examples from a file:**
    ```bash
-   python src/inference.py --file data/processed_data/processed_aspect_data_test.json --num_examples 3
+   python src/inference.py --file data/filtered_data/processed_aspect_data_test.json --num_examples 3
    ```
 
-## How It Works
+## Approach 2: Aspect Term Classification (src_final)
 
-### Data Preparation (`data_prep.py`)
-- **Purpose**: Preprocesses raw data into a structured format for training and evaluation.
+This approach uses **multi-label classification** to identify which predefined aspect categories are present in the text, then classifies sentiment for each identified aspect.
 
-### Model Training (`train.py`)
-- **Purpose**: Trains the Aspect Term Extraction (ATE) and Aspect Sentiment Classification (ASC) models.
-- **ATE Training**: Optimizes for F1 score with learning rate decay when performance plateaus.
-- **ASC Training**: Uses class weighting to address the imbalance between sentiment classes.
+### Model Components:
+- **ATC Model**: Multi-label BERT classifier for predefined aspect categories
+- **ASC Model**: BERT with sequence classification head for aspect-sentiment pairs
 
-### Inference (`inference.py`)
-- **Purpose**: Performs Aspect-Based Sentiment Analysis (ABSA) on new text or a file of examples.
+### Predefined Aspect Categories:
+- Ποιότητα κλήσης (Call Quality)
+- Φωτογραφίες (Photos)
+- Καταγραφή Video (Video Recording)
+- Ταχύτητα (Speed)
+- Ανάλυση οθόνης (Screen Resolution)
+- Μπαταρία (Battery)
+- Σχέση ποιότητας τιμής (Price-Quality Ratio)
+- Μουσική (Music)
+
+### Training the ATC Models
+
+```bash
+python src_final/train.py [OPTIONS]
+```
+
+#### Training Arguments
+
+- `--train_atc`, `--atc`: Train the Aspect Term Classification model
+- `--train_asc`, `--asc`: Train the Aspect Sentiment Classification model
+- `--epochs`, `-e`: Number of training epochs (default: 3)
+- `--learning_rate`, `--lr`: Learning rate (default: 1e-5)
+- `--batch_size`, `--b`: Batch size (default: 8)
+- `--gradient_clipping`, `--gc`: Gradient clipping norm (default: 0.5)
+- `--resume`: Resume training from existing checkpoints
+- `--data_dir`, `-d`: Data directory (default: `data/f_data_bert_lemma`)
+- `--asc_use_class_weights`: Use class weights for ASC training
+- `--augmented_data_asc`: Use augmented datasets for ASC training
+
+#### Examples
+
+1. **Train ATC model:**
+   ```bash
+   python src_final/train.py --train_atc --epochs 5
+   ```
+2. **Train ASC model with class weights:**
+   ```bash
+   python src_final/train.py --train_asc --epochs 10 --asc_use_class_weights
+   ```
+3. **Train ASC with augmented data:**
+   ```bash
+   python src_final/train.py --train_asc --augmented_data_asc --epochs 8
+   ```
+
+### Testing ATC Models
+
+```bash
+python src_final/test.py [OPTIONS]
+```
+
+## Data Structure
+
+### ATE Data Format (src)
+Data in `data/filtered_data/` uses BIO tagging format:
+```json
+{
+  "text": "η μπαταρία κρατάει πολύ καιρό",
+  "tokens": ["η", "μπαταρία", "κρατάει", "πολύ", "καιρό"],
+  "bio_labels": ["O", "B-ASP", "O", "O", "O"],
+  "aspects": [{"aspect": "Μπαταρία", "sentiment_id": 2}]
+}
+```
+
+### ATC Data Format (src_final)
+Data in `data/f_data_bert_lemma/` uses multi-label classification format:
+```json
+{
+  "text_processed": "η μπαταρία κρατάει πολύ καιρό",
+  "aspects_present": [
+    {
+      "aspect_category": "Μπαταρία",
+      "sentiment_id": 2
+    }
+  ]
+}
+```
+
+### Available Data Directories:
+- `filtered_data/`: BIO-tagged data for ATE approach
+- `f_data_bert/`: Standard data for ATC approach
+- `f_data_bert_lemma/`: Lemmatized data for ATC approach
+- `f_data_bert_augmented/`: Augmented standard data for ATC
+- `f_data_bert_lemma_augmented/`: Augmented lemmatized data for ATC
 
 ## Model Architecture
 
-Both models are based on BERT (specifically `nlpaueb/bert-base-greek-uncased-v1`):
-- **ATE**: BERT with token classification head for extracting aspect terms
-  - Focuses on optimizing F1 score
-  - Uses adaptive learning rate scheduling
-- **ASC**: BERT with sequence classification head for sentiment analysis
-  - Uses class weighting to handle imbalanced data
-  - Weights: 4x for negative and neutral classes, 1x for positive class
+Both approaches are based on `nlpaueb/bert-base-greek-uncased-v1`:
+
+### ATE Approach (src):
+- **ATE**: BERT with token classification head (3 classes: O, B-ASP, I-ASP)
+- **ASC**: BERT with sequence classification head (3 classes: negative, neutral, positive)
+
+### ATC Approach (src_final):
+- **ATC**: Multi-label BERT classifier (8 aspect categories)
+- **ASC**: BERT with sequence classification head for aspect-sentiment pairs
 
 ## Evaluation Metrics
 
-- **ATE**: 
-  - Precision: How many of the predicted aspects are correct
-  - Recall: How many of the actual aspects are identified
-  - F1-score: Harmonic mean of precision and recall (primary optimization target)
+### ATE Approach:
+- **Precision, Recall, F1-score**: For aspect extraction (entity-level)
+- **Macro-F1**: For sentiment classification
 
-- **ASC**: 
-  - Macro-F1: Balanced F1 score across all sentiment classes (primary optimization target)
-  - Per-class F1 scores for negative, neutral, and positive sentiment
-
-## Visualizing Metrics
-
-After training the models, run:
-```bash
-python src/metrics.py
-```
-This will generate plots in the `metrics_plots` directory and print a summary of the final evaluation metrics.
+### ATC Approach:
+- **Multi-label metrics**: Precision, Recall, F1 for each aspect category
+- **Macro-F1**: Average across all aspect categories and sentiment classes
 
 ## Testing the Models
 
-To evaluate the models on test data, run:
+### ATE Testing:
 ```bash
-python src/test.py --test_data data/processed_data/processed_aspect_data_test.json --num_examples 5
-```
-This will save detailed results in the `results` directory and print a summary of the evaluation metrics.
-
-## Improvements
-
-### Aspect Term Extraction Improvements
-- **F1-focused optimization**: The model is now optimized for F1 score, which balances precision and recall
-- **Learning rate scheduling**: Learning rate automatically decays when F1 score doesn't improve for 15 evaluation cycles
-- **Filtering non-aspect terms**: Common adjectives and non-aspect words are filtered out to improve precision
-
-### Aspect Sentiment Classification Improvements
-- **Class weighting**: Negative and neutral sentiments are given 4x more weight than positive sentiments to address class imbalance
-- **Improved aspect-sentiment pairing**: Sentiments are now directly tied to aspects extracted by the ATE model
-- **Adaptive learning rate**: Learning rate decreases by 25% when macro-F1 score plateaus
-
-These improvements help the model better handle the imbalanced distribution of sentiment labels in Greek product reviews, where positive sentiments are typically more common than negative and neutral sentiments.
-
-### Future Improvements
-- **Extended training**: Current testing shows the ATE model needs more training to improve recall
-- **Data augmentation**: Generating more examples with labeled aspects would help the model learn to identify a wider variety of aspects
-- **Fine-tuning confidence thresholds**: Lowering confidence thresholds for aspect extraction may improve recall at the cost of precision
-- **Greek-specific pre-processing**: Additional pre-processing tailored specifically to Greek text could improve aspect extraction
-
-## src_roB Folder
-
-The `src_roB` folder implements the same functionality as the `src` folder but utilizes the Greek RoBERTa model for Aspect-Based Sentiment Analysis (ABSA). 
-
-### Training the Models
-
-To train both the aspect extraction and sentiment classification models using RoBERTa, use the following command:
-
-```bash
-python src_roB/train_r.py [OPTIONS]
+python src/test.py --test_data data/filtered_data/processed_aspect_data_test.json --num_examples 5
 ```
 
-### Training Arguments
+### ATC Testing:
+```bash
+python src_final/test.py --atc_model_path models/saved_models_final/aspect_classification_model --asc_model_path models/saved_models_final/aspect_sentiment_model
+```
 
-You can customize the training process with the following arguments:
+### Metrics Visualization:
+```bash
+# For ATE approach
+python src/metrics.py
 
-- `--epochs`: Number of training epochs (default: 5)
-- `--train_ate_epochs`: Number of epochs to train the Aspect Term Extraction model (overrides `--epochs` for ATE). If not provided, ATE training will be skipped.
-- `--train_asc_epochs`: Number of epochs to train the Aspect Sentiment Classification model (overrides `--epochs` for ASC). If not provided, ASC training will be skipped.
-- `--resume`: Resume training from existing checkpoints.
-- `--learning_rate`: Learning rate for training (default: 3e-5).
-- `--batch_size`: Batch size for training (default: 16).
-- `--patience`: Patience for early stopping (default: 30).
-- `--augment_data`: Use data augmentation techniques to improve training.
-- `--include_adjectives`: Include adjectives during training (default: False).
-- `--data_dir`: Directory containing the processed data files (default: `data/filtered_data_r`).
-- `--use_focal_loss`: Use focal loss instead of cross-entropy for training.
-- `--gradient_accumulation`: Number of steps to accumulate gradients (default: 1).
-- `--class_weights`: Comma-separated class weights for O, B-ASP, I-ASP (default: `0.5,5,5`).
+# For ATC approach  
+python src_final/metrics.py
+```
 
-### Examples
+## Key Differences Between Approaches
 
-1. **Resume training from checkpoints:**
-   ```bash
-   python src_roB/train_r.py --resume
-   ```
-2. **Train only the Aspect Term Extraction model:**
-   ```bash
-   python src_roB/train_r.py --train_ate_epochs 5
-   ```
-3. **Train only the Aspect Sentiment model with more epochs:**
-   ```bash
-   python src_roB/train_r.py --train_asc_epochs 10
-   ```
-4. **Train with focal loss:**
-   ```bash
-   python src_roB/train_r.py --train_ate_epochs 5 --use_focal_loss
-   ```
-5. **Train with gradient accumulation:**
-   ```bash
-   python src_roB/train_r.py --train_ate_epochs 5 --gradient_accumulation 2
-   ```
+| Feature | ATE Approach (src) | ATC Approach (src_final) |
+|---------|-------------------|--------------------------|
+| **Aspect Detection** | BIO tagging (extract any aspect terms) | Multi-label classification (predefined categories) |
+| **Flexibility** | Can find new/unknown aspects | Limited to predefined aspect categories |
+| **Data Format** | Token-level BIO labels | Document-level multi-labels |
+| **Complexity** | More complex (sequence labeling) | Simpler (classification) |
+| **Coverage** | Broader aspect discovery | Focused on specific domains |
 
-### Notes on Training
-
-- The training scripts have been updated to allow for more flexible training configurations, including the ability to skip training if specific epoch arguments are not provided.
-- Focal loss can now be utilized to address class imbalance during training, enhancing the model's performance on underrepresented classes.
-- Gradient accumulation is supported to help with training stability, especially when working with larger batch sizes that may not fit into memory.
-
-### Data Preparation
-
-The `data_prep_r.py` script preprocesses raw data into a structured format for training and evaluation, specifically for the Greek RoBERTa model.
-
-#### Filtered Data Directories
-
-- **`filtered_data_r`**: This directory contains data encoded for RoBERTa in the same way as done for BERT. It includes processed aspect data for training the models.
-  
-- **`filtered_review_data_r`**: This directory contains clean text reviews of the data, which can be used to train the model in a different, more comprehensive way.
+Choose the ATE approach for broader aspect discovery and the ATC approach for focused analysis on predefined aspect categories.
 
