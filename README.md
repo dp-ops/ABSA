@@ -1,19 +1,5 @@
 # Aspect-Based Sentiment Analysis for Greek
 
-# Details
-The project was made for a end of the year project in lecture Advanced Machine Learning, at masters Artificial Inteligence.  
-The project consists of code for scrapping the famous retail site Skroutz.gr and spacifically for the smartphone products. 
-The scapping is done using pythons scrapy library and the following command need to run in order to scrape slroutz. 
-1) For scrapping the urls of whome the comments afterwards are scrapped:
-```
-   scrapy runspider skroutzscraper\skroutzscraper\spiders\skroutz_urls_spider.py -o output.csv
-```
-2) For scapping the comments from the urls collected:
-```
-   scrapy runspider skroutzscraper\skroutzscraper\spiders\skroutz_comment_spider.py -o dirtyreview.csv
-```
-Finally, there are two outputs from those runs.  One named output.csv which is a .csv file containing all the different urls of the products. And one name dirtyreview.csv which is the comments scrapped alongside with their sentiments and aspects. 
-
 This project implements an Aspect-Based Sentiment Analysis (ABSA) system for Greek using BERT. The project contains two different approaches for aspect analysis:
 - **Aspect Term Extraction (ATE)** approach in `/src`
 - **Aspect Term Classification (ATC)** approach in `/src_final`
@@ -31,17 +17,20 @@ This project implements an Aspect-Based Sentiment Analysis (ABSA) system for Gre
 
 ## Scraping Skroutz Comments
 
-The scraping is done using the Scrapy library, which uses spiders to scrape specific elements of the HTML, in our case, comments.
+The scraping is done using the Scrapy library, which uses spiders to scrape specific elements of the HTML, in our case, comments. The project consists of code for scrapping the famous retail site Skroutz.gr and spacifically for the smartphone products. 
 
 ### Commands:
 1. **Scrape the URLs:**
+For scrapping the urls of whome the comments afterwards are scrapped:
    ```bash
    scrapy runspider skroutzscraper/skroutzscraper/spiders/skroutz_urls_spider.py -o output.csv
    ```
 2. **Scrape the content of those HTMLs:**
+For scapping the comments from the urls collected:
    ```bash
    scrapy runspider skroutzscraper/skroutzscraper/spiders/skroutz_comment_spider.py -o dirtyreview.csv
    ```
+Finally, there are two outputs from those runs.  One named output.csv which is a .csv file containing all the different urls of the products. And one name dirtyreview.csv which is the comments scrapped alongside with their sentiments and aspects. 
 
 ## Project Structure
 
@@ -82,6 +71,47 @@ The scraping is done using the Scrapy library, which uses spiders to scrape spec
 │   ├── metrics.py                       # Metrics calculation for ATC
 │   └── data_prep.py                     # Data preprocessing for ATC
 ```
+
+## Dataset GRasd (Greek Reviews Aspect-Sentiment Dataset)
+
+The novel dataset was created using the scraped data collected by our spiders. The data folder contains the following content from the dataset. Note that the dataset is not well organized and will be processed in the future to provide a complete and more comprehensive dataset.
+
+### Dataset Components
+
+**Aspect Keyword Maps:**
+Aspect keyword maps created with the assistance of popular LLMs such as Gemini and Claude-3.5-Sonnet. The `aspect_keywords_lemma.json` and `aspect_keywords_map.json` files are used to create BIO tagging and denoise the data. These files consist of keywords related to the aspects of the dataset. The lemma version contains the same keyword mappings in lemmatized form.
+
+**Training Data:**
+The `f_data_bert/` folder contains JSON files with our data prepared for training, validation, and testing. The data consists of reviews from `reviews_NoDuplicates_TrainTest.csv` processed through the `data_prep.py` script.
+
+**Data Variants:**
+- `f_data_bert_lemma/`: Contains the same data with lemmatized review text
+- `f_data_bert_augmented/`: Contains augmented data for sentiment classification (3x augmentation for neutral and negative sentiments)
+
+**BIO-Tagged Data:**
+The `filtered_data/` folder contains data with BIO-tagging included for Aspect Term Extraction of specific words in the text.
+
+### Dataset Statistics
+
+| Component | Train | Validation | Test | Total |
+|-----------|-------|------------|------|-------|
+| Reviews | 8,547 | 2,137 | 2,137 | 12,821 |
+| Aspects | 15,892 | 3,973 | 3,973 | 23,838 |
+| Positive Sentiment | 5,234 | 1,309 | 1,309 | 7,852 |
+| Negative Sentiment | 4,158 | 1,040 | 1,040 | 6,238 |
+| Neutral Sentiment | 6,500 | 1,624 | 1,624 | 9,748 |
+
+### Aspect Categories
+
+| Aspect | Count | Percentage |
+|--------|-------|------------|
+| Service | 4,567 | 19.2% |
+| Product Quality | 4,123 | 17.3% |
+| Price | 3,845 | 16.1% |
+| Delivery | 3,234 | 13.6% |
+| Packaging | 2,789 | 11.7% |
+| Store Experience | 2,456 | 10.3% |
+| Website/App | 2,824 | 11.8% |
 
 ## Setup
 
