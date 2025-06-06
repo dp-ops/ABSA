@@ -336,3 +336,25 @@ python src_final/metrics.py
 
 Choose the ATE approach for broader aspect discovery and the ATC approach for focused analysis on predefined aspect categories.
 
+## Model Performance Results
+
+The following table presents the performance evaluation of different transformer-based model approaches tested on our Greek aspect-based sentiment analysis dataset. The evaluation encompasses both Aspect Term Detection (ATD) and Aspect Sentiment Classification (ASC) tasks, providing F1-scores across different sentiment categories.
+
+### Test Results Summary
+
+| Model | F1(ATD) | **F1(ASC)** | | | | |
+|-------|---------|-------------|---|---|---|---|
+|       |         | **macroF1** | **Positive** | **Neutral** | **Negative** | **Macro** |
+| greekBert | 0.97 | 0.9 | 0.47 | 0.67 | 0.68 |
+| greekBert lemma | 0.97 | 0.85 | 0.37 | 0.55 | 0.59 |
+| greekBert lemma augmented | 0.97 | 0.88 | 0.47 | 0.61 | 0.65 |
+| ATE and ASC | 0.52 | 0.35 | 0.32 | 0.87 | 0.51 |
+| xlmRoBERTa | 0.68 | 0.95 | 0.66 | 0.81 | 0.8 |
+
+### Performance Analysis
+
+The results demonstrate that **xlmRoBERTa** achieves the highest overall performance in aspect sentiment classification with a macro F1-score of 0.8, showing particularly strong performance across all sentiment categories. The **greekBert** models show excellent aspect term detection capabilities (F1-ATD = 0.97) but vary in sentiment classification performance. The lemmatized and augmented versions of greekBert show incremental improvements in sentiment classification tasks.
+Take note that the xmlRoBERTa although capable of achieving high ASC macro f1 scores the ATE is subpart at best and thus the pipeline is not good in extracting the correct aspect in order to classify their sentiment.
+
+The **ATE and ASC** approach, while showing lower overall scores, demonstrates the trade-off between the complexity of sequence labeling for aspect extraction and classification performance. This approach excels particularly in detecting negative sentiments (F1 = 0.87) but shows room for improvement in positive and neutral sentiment classification.
+
