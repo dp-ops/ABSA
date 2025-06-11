@@ -344,7 +344,7 @@ The following table presents the performance evaluation of different transformer
 
 | Model | F1(ATD) | **F1(ASC)** | | | | |
 |-------|---------|-------------|---|---|---|---|
-|       |         | **macroF1** | **Positive** | **Neutral** | **Negative** | **Macro** |
+|       | **macroF1** | **Positive** | **Neutral** | **Negative** | **Macro** |
 | greekBert | 0.97 | 0.9 | 0.47 | 0.67 | 0.68 |
 | greekBert lemma | 0.97 | 0.85 | 0.37 | 0.55 | 0.59 |
 | greekBert lemma augmented | 0.97 | 0.88 | 0.47 | 0.61 | 0.65 |

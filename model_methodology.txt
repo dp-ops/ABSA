@@ -1,0 +1,226 @@
+MODEL METHODOLOGY AND TRAINING PROCEDURES
+
+1. OVERVIEW
+
+The aspect-based sentiment analysis system was implemented as a two-stage pipeline comprising an Aspect Term Classification (ATC) model for aspect detection and an Aspect Sentiment Classification (ASC) model for sentiment prediction. Both models were built upon the nlpaueb/bert-base-greek-uncased-v1 pre-trained transformer, specifically designed for Greek language processing.
+
+2. ASPECT TERM CLASSIFICATION (ATC) MODEL
+
+2.1 Model Architecture:
+The ATC model was implemented as a multi-label classification system using a custom MultiLabelBertForAspectClassification class. The architecture consisted of:
+
+- Base Model: nlpaueb/bert-base-greek-uncased-v1 BERT transformer
+- Classification Head: Linear layer with 8 output neurons (one per aspect category)
+- Problem Type: Multi-label classification with sigmoid activation
+- Output: Binary predictions for each of the 8 predefined aspect categories
+
+2.2 Aspect Categories:
+The model was trained to detect eight predefined aspect categories:
+1. "Ποιότητα κλήσης" (Call Quality)
+2. "Φωτογραφίες" (Photos)
+3. "Καταγραφή Video" (Video Recording)
+4. "Ταχύτητα" (Speed)
+5. "Ανάλυση οθόνης" (Screen Resolution)
+6. "Μπαταρία" (Battery)
+7. "Σχέση ποιότητας τιμής" (Price-Quality Ratio)
+8. "Μουσική" (Music)
+
+2.3 Input Processing:
+- Text Input: Preprocessed review text (deaccented and normalized)
+- Tokenization: BERT tokenizer with maximum sequence length of 256 tokens
+- Padding: Applied to maximum length for consistent batch processing
+- Label Encoding: Binary vectors (0.0/1.0) indicating presence/absence of each aspect
+
+2.4 Training Configuration:
+- Learning Rate: 2e-5 (default) with ReduceLROnPlateau scheduler
+- Batch Size: 16 (default)
+- Number of Epochs: 3 (default)
+- Optimizer: AdamW with weight decay of 0.01
+- Warmup Ratio: 0.1 (10% of training steps)
+- Gradient Clipping: L2 norm of 1.0
+- Learning Rate Scheduling: ReduceLROnPlateau (mode='max', factor=0.7, patience=7)
+
+2.5 Loss Function:
+Binary Cross-Entropy with Logits Loss for multi-label classification, automatically handled by the HuggingFace framework with problem_type="multi_label_classification".
+
+2.6 Evaluation Metrics:
+- Primary Metric: Macro F1-score across all aspect categories
+- Additional Metrics: Macro precision, macro recall, subset accuracy (exact match)
+- Threshold: 0.5 for binary classification after sigmoid activation
+
+3. ASPECT SENTIMENT CLASSIFICATION (ASC) MODEL
+
+3.1 Model Architecture:
+The ASC model was implemented using the standard BERT sequence classification architecture:
+
+- Base Model: nlpaueb/bert-base-greek-uncased-v1 BERT transformer
+- Classification Head: Linear layer with 3 output neurons (negative, neutral, positive)
+- Problem Type: Single-label classification with softmax activation
+- Input Format: Text-aspect pair concatenation with [SEP] token separation
+
+3.2 Sentiment Categories:
+The model classified sentiment into three categories:
+- Negative (sentiment_id: 0)
+- Neutral (sentiment_id: 1)
+- Positive (sentiment_id: 2)
+
+3.3 Input Processing:
+- Dual Input: Review text + aspect name concatenated as sentence pairs
+- Tokenization: BERT tokenizer with maximum sequence length of 256 tokens
+- Token Type IDs: Utilized to distinguish between text and aspect segments
+- Label Encoding: Integer labels (0, 1, 2) for sentiment categories
+
+3.4 Training Configuration:
+- Learning Rate: 1e-5 (optimized for imbalanced data, configurable via command line)
+- Batch Size: 8 (reduced for stability with imbalanced data, configurable)
+- Number of Epochs: 3 (default, configurable)
+- Optimizer: AdamW with custom learning rate scheduling
+- Warmup Ratio: 0.15 (15% of training steps for enhanced stability)
+- Gradient Clipping: 0.5 (tighter control for stability, configurable)
+- Learning Rate Scheduling: Linear warmup + ReduceLROnPlateau based on Macro F1
+
+3.5 Class Imbalance Handling:
+Given the significant class imbalance (73.13% positive, 16.41% neutral, 10.47% negative), several techniques were implemented:
+
+a) Weighted Loss Function:
+- Custom WeightedTrainerASC class extending HuggingFace Trainer
+- Class weights: [2.0, 2.0, 1.0] for [negative, neutral, positive]
+- Focal Loss option: Configurable focal loss with alpha weighting and gamma=2.0
+
+b) Advanced Learning Rate Scheduling:
+- Custom MacroF1OnPlateauCallback for plateau-based LR reduction
+- Patience: 10 evaluations without improvement
+- Factor: 0.7 reduction multiplier
+- Minimum LR: 1e-8
+
+c) Evaluation Strategy:
+- Frequent evaluation every 50 steps
+- Metric-based model selection using Macro F1-score
+- Load best model at end of training
+
+3.6 Loss Functions:
+- Standard Mode: Weighted Cross-Entropy Loss
+- Advanced Mode: Focal Loss for extreme imbalance
+- Implementation: Custom compute_loss method in WeightedTrainerASC
+
+3.7 Evaluation Metrics:
+- Primary Metric: Macro F1-score (equal weight to all classes)
+- Secondary Metrics: Accuracy, macro precision, macro recall
+- Per-Class Metrics: Individual F1-scores for negative, neutral, positive classes
+
+4. DATA AUGMENTATION INTEGRATION
+
+4.1 ASC Augmentation Support:
+The training pipeline supported augmented datasets specifically for ASC training:
+- Augmented data targeting: Negative and neutral sentiment classes
+- Multiplication factor: 3× increase for underrepresented classes
+- Data directory modification: Automatic "_augmented" suffix handling
+- Command-line control: --augmented_data_asc flag for easy switching
+
+5. TRAINING PIPELINE AND PROCEDURES
+
+5.1 Training Script Architecture:
+The train.py script provided a unified interface for both models with the following features:
+
+a) Model Selection:
+- --train_atc: Train Aspect Term Classification model
+- --train_asc: Train Aspect Sentiment Classification model
+- Mutually exclusive training modes
+
+b) Hyperparameter Configuration:
+- Epochs: Configurable via --epochs (default: 3)
+- Learning Rate: Configurable via --learning_rate (default: 1e-5 for ASC, 2e-5 for ATC)
+- Batch Size: Configurable via --batch_size (default: 8 for ASC, 16 for ATC)
+- Gradient Clipping: Configurable via --gradient_clipping (default: 0.5)
+
+c) Data Management:
+- Data directory specification: --data_dir flag
+- Automatic augmented data handling for ASC
+- Checkpoint resumption: --resume flag
+- Model cleanup: Automatic deletion of existing models unless resuming
+
+5.2 Model Persistence:
+- Model Storage: HuggingFace format in designated directories
+- Tokenizer Saving: Consistent tokenizer preservation
+- Metrics Logging: JSON format training and evaluation metrics
+- Checkpoint Management: Automatic checkpoint saving and loading
+
+6. INFERENCE PIPELINE (ABSAPipeline)
+
+6.1 Pipeline Architecture:
+The complete ABSA system was implemented as a two-stage inference pipeline:
+
+Stage 1 - Aspect Detection (ATC):
+- Input: Preprocessed review text
+- Processing: Multi-label classification with confidence threshold (default: 0.5)
+- Output: List of detected aspects with confidence scores
+
+Stage 2 - Sentiment Classification (ASC):
+- Input: Original text + detected aspect pairs
+- Processing: Sentiment classification for each detected aspect
+- Output: Sentiment predictions with confidence scores
+
+6.2 Pipeline Flow:
+```
+Raw Text Input
+    ↓
+Text Preprocessing (normalization, tokenization)
+    ↓
+ATC Model (Aspect Detection)
+    ↓
+Detected Aspects + Confidence Scores
+    ↓
+For each detected aspect:
+    Text + Aspect → ASC Model → Sentiment + Confidence
+    ↓
+Final Results: [(Aspect, Sentiment, Confidences)]
+```
+
+6.3 Output Format:
+Each analysis result contained:
+- aspect: Detected aspect category name
+- aspect_confidence: ATC model confidence (0-1)
+- sentiment: Predicted sentiment label
+- sentiment_confidence: ASC model confidence (0-1)
+- sentiment_id: Numerical sentiment identifier
+
+6.4 Confidence Thresholding:
+- ATC Threshold: Configurable (default: 0.5) for aspect detection
+- ASC Output: Softmax probabilities for sentiment classification
+- Quality Control: Low-confidence predictions could be filtered
+
+7. MODEL EVALUATION PROCEDURES
+
+7.1 ATC Evaluation:
+- Sigmoid activation applied to raw logits
+- Binary classification threshold: 0.5
+- Multi-label metrics: Macro-averaged across all aspects
+- Subset accuracy: Exact match evaluation for complete aspect sets
+
+7.2 ASC Evaluation:
+- Softmax activation for probability distribution
+- Argmax selection for final prediction
+- Classification report: Comprehensive per-class and macro metrics
+- Focus on Macro F1: Equal importance to all sentiment classes
+
+7.3 Pipeline Evaluation:
+- End-to-end testing on held-out test data
+- Aspect detection accuracy: Correctly identified aspects
+- Sentiment accuracy: Correct sentiment for detected aspects
+- Combined performance metrics for complete system evaluation
+
+8. COMPUTATIONAL SPECIFICATIONS
+
+8.1 Model Specifications:
+- Base Model Parameters: ~110M parameters (BERT-base architecture)
+- Maximum Sequence Length: 256 tokens
+- Vocabulary Size: Greek-specific vocabulary from nlpaueb/bert-base-greek-uncased-v1
+- Precision: Mixed-precision training support available
+
+8.2 Training Infrastructure:
+- Framework: PyTorch with HuggingFace Transformers
+- GPU Support: CUDA-compatible training
+- Memory Management: Gradient accumulation and checkpointing available
+- Reproducibility: Fixed random seeds for consistent results
+
+This comprehensive modeling methodology ensured robust performance for aspect-based sentiment analysis on Greek language review data, with specific optimizations for handling class imbalance and multi-label classification challenges. 
